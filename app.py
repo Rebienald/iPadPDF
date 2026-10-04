@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
-iPadPDF - Ultra-Lightweight PDF Reader & Library for iPad 1st Gen (iOS 5)
-Server-side rasterization to lightweight JPEGs for 256MB RAM devices.
-Supports instant touch swipe navigation (swipe left/right) with zero clutter.
+iPadPDF - Ultra-Lightweight Single Page Application (SPA) for iPad 1st Gen (iOS 5)
+100% Offline-Resilient:
+- All books and reader in ONE single HTML page (no broken offline page navigations)
+- URL never changes, so Safari Refresh NEVER breaks
+- Automatically restores last book and page from localStorage on reload
+- Sequential memory-safe cache for all books
+- Pure swipe & edge-tap navigation
 """
 
 import os
@@ -110,28 +114,36 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=130, quality=78):
         app.logger.error(f'Failed rendering page {page_num}: {e}')
         return False
 
-INDEX_HTML = '''<!DOCTYPE html>
+# Single unified HTML page containing both Library and Fullscreen Reader
+SPA_HTML = '''<!DOCTYPE html>
 <html manifest="/offline.appcache">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="/icon.png">
-    <title>iPad PDF Library</title>
+    <title>iPad PDF</title>
     <style>
-    body {
+    * {
+        -webkit-box-sizing: border-box;
+        box-sizing: border-box;
+    }
+    body, html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        min-height: 100%;
+        font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+    
+    /* Library View Styles */
+    #libraryView {
         background-color: #f7f7f7;
         color: #222222;
-        font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
-        margin: 0;
         padding: 12px;
         font-size: 16px;
         line-height: 1.4;
-    }
-    a {
-        color: #0066cc;
-        text-decoration: none;
     }
     .header {
         background: #ffffff;
@@ -163,14 +175,19 @@ INDEX_HTML = '''<!DOCTYPE html>
         display: inline-block;
         background: #007aff;
         color: #ffffff !important;
-        padding: 10px 18px;
+        padding: 8px 16px;
         border: 1px solid #0056b3;
         border-radius: 4px;
-        font-size: 16px;
+        font-size: 15px;
         font-weight: bold;
         cursor: pointer;
         text-align: center;
+        text-decoration: none;
         -webkit-appearance: none;
+    }
+    .btn-success {
+        background: #28a745;
+        border-color: #1e7e34;
     }
     .btn-danger {
         background: #dc3545;
@@ -199,87 +216,14 @@ INDEX_HTML = '''<!DOCTYPE html>
         margin-bottom: 12px;
         display: block;
     }
-    </style>
-</head>
-<body>
 
-    <div class="header">
-        <h1>iPad PDF Library</h1>
-        <div>Minimalist PDF Reader for Gen 1 iPad. Swipe left/right to turn pages.</div>
-    </div>
-
-    <div class="ip-banner">
-        <strong>Open Safari on your iPad and go to:</strong><br>
-        <span style="font-size: 20px; font-weight: bold; color: #0056b3;">http://{{ local_ip }}:{{ port }}</span>
-    </div>
-
-    <div class="card">
-        <h2 style="margin-top: 0; font-size: 18px;">Upload New PDF</h2>
-        <form action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" name="pdf_file" accept=".pdf,application/pdf" required>
-            <input type="submit" value="Upload PDF" class="btn">
-        </form>
-    </div>
-
-    <div class="card">
-        <h2 style="margin-top: 0; font-size: 18px;">My Documents ({{ books|length }})</h2>
-        {% if books %}
-        <table class="book-table">
-            <thead>
-                <tr>
-                    <th>Title</th>
-                    <th>Pages</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for b in books %}
-                <tr>
-                    <td>
-                        <strong><a href="/read/{{ b.id }}">{{ b.title }}</a></strong>
-                        <div style="font-size: 13px; color: #666;">Reading: Page {{ b.current_page }} of {{ b.page_count }}</div>
-                    </td>
-                    <td>{{ b.page_count }}</td>
-                    <td>
-                        <a href="/read/{{ b.id }}" class="btn" style="padding: 8px 16px;">Open</a>
-                        <form action="/delete/{{ b.id }}" method="post" style="display: inline; margin-left: 6px;" onsubmit="return confirm('Delete this PDF?');">
-                            <input type="submit" value="Delete" class="btn btn-danger">
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p style="color: #666;">No PDFs uploaded yet. Upload one above from any phone or laptop!</p>
-        {% endif %}
-    </div>
-
-</body>
-</html>'''
-
-SWIPE_READER_HTML = '''<!DOCTYPE html>
-<html manifest="/offline.appcache">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="/icon.png">
-    <title>{{ book.title }}</title>
-    <style>
-    * {
-        -webkit-box-sizing: border-box;
-        box-sizing: border-box;
-    }
-    body, html {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        min-height: 100%;
+    /* Reader View Styles (Dark Fullscreen) */
+    #readerView {
+        display: none;
         background-color: #1e1e1e;
         color: #ffffff;
-        font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+        min-height: 100%;
+        width: 100%;
         overflow-x: hidden;
     }
     #topBar {
@@ -288,39 +232,31 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
         left: 0;
         right: 0;
         height: 38px;
-        background: rgba(0, 0, 0, 0.85);
+        background: rgba(0, 0, 0, 0.90);
         border-bottom: 1px solid #333333;
-        padding: 6px 14px;
+        padding: 5px 12px;
         z-index: 999;
         font-size: 15px;
     }
-    .nav-link {
+    .nav-btn {
         color: #5ac8fa !important;
         text-decoration: none;
         font-weight: bold;
         float: left;
-        line-height: 26px;
+        line-height: 28px;
         font-size: 15px;
+        margin-right: 10px;
+        cursor: pointer;
     }
     .page-badge {
         float: right;
         color: #cccccc;
         font-size: 14px;
-        line-height: 26px;
-    }
-    .book-title {
-        text-align: center;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 55%;
-        margin: 0 auto;
-        color: #ffffff;
-        font-size: 14px;
-        line-height: 26px;
+        line-height: 28px;
+        font-weight: bold;
     }
     #pageArea {
-        padding-top: 38px;
+        padding-top: 40px;
         text-align: center;
         width: 100%;
         min-height: 100%;
@@ -339,35 +275,113 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
         text-align: center;
         padding: 8px 0;
     }
+    #cacheStatus {
+        display: none;
+        background: #2a2a2a;
+        border-bottom: 1px solid #444;
+        color: #ffcc00;
+        text-align: center;
+        font-size: 13px;
+        padding: 6px 10px;
+        position: fixed;
+        top: 38px;
+        left: 0;
+        right: 0;
+        z-index: 998;
+    }
     </style>
 </head>
 <body>
 
-    <!-- Minimal top header with Book Switcher -->
-    <div id="topBar">
-        <select id="bookSelect" onchange="switchBook(this.value)" style="background: #2b2b2b; color: #ffffff; border: 1px solid #555555; padding: 4px 6px; font-size: 14px; border-radius: 4px; max-width: 175px; float: left; margin-top: 1px; -webkit-appearance: menulist;">
-            {% for b in all_books %}
-            <option value="{{ b.id }}" {% if b.id == book.id %}selected{% endif %}>{{ b.title }} ({{ b.page_count }}p)</option>
-            {% endfor %}
-        </select>
-        <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-link" id="cacheBtn" style="margin-left: 10px; font-weight: normal; color: #ffcc00 !important; font-size: 13px;">Save All Offline</a>
-        <a href="/" class="nav-link" style="margin-left: 10px; font-size: 13px; color: #888888 !important;">Upload</a>
-        <span class="page-badge" id="pageDisplay">{{ current_page }} / {{ book.page_count }}</span>
-    </div>
-    <div id="cacheStatus" style="display: none; background: #2a2a2a; border-bottom: 1px solid #444; color: #ffcc00; text-align: center; font-size: 13px; padding: 6px 10px; position: fixed; top: 38px; left: 0; right: 0; z-index: 998;"></div>
+    <!-- ==================== 1. LIBRARY VIEW ==================== -->
+    <div id="libraryView">
+        <div class="header">
+            <h1>iPad PDF Library</h1>
+            <div>Offline PDF Reader for Gen 1 iPad. Swipe left/right to turn pages.</div>
+        </div>
 
-    <!-- The PDF Page Container -->
-    <div id="pageArea">
-        <img id="pageImg" src="/page/{{ book.id }}/{{ current_page }}" alt="PDF Page">
-        <div id="tapHint">Swipe left for Next &bull; Swipe right for Prev</div>
+        <div class="ip-banner">
+            <strong>Local Address:</strong> Open Safari on your iPad and go to:<br>
+            <span style="font-size: 20px; font-weight: bold; color: #0056b3;">http://{{ local_ip }}:{{ port }}</span>
+        </div>
+
+        <div class="card" style="background: #fff8e1; border-color: #ffe082;">
+            <strong style="color: #b78103; font-size: 16px;">School / Offline Preparation:</strong><br>
+            <span style="font-size: 14px; color: #555;">Tap this button once while connected to Wi-Fi to save all reviewers to your iPad storage:</span><br><br>
+            <button onclick="startOfflineCacheAll()" id="libCacheBtn" class="btn btn-success" style="font-size: 16px; padding: 10px 20px;">Save All Books for Offline (School)</button>
+            <div id="libCacheStatus" style="margin-top: 8px; font-weight: bold; color: #b78103;"></div>
+        </div>
+
+        <div class="card">
+            <h2 style="margin-top: 0; font-size: 18px;">Upload New PDF</h2>
+            <form action="/upload" method="post" enctype="multipart/form-data">
+                <input type="file" name="pdf_file" accept=".pdf,application/pdf" required>
+                <input type="submit" value="Upload PDF" class="btn">
+            </form>
+        </div>
+
+        <div class="card">
+            <h2 style="margin-top: 0; font-size: 18px;">My Documents ({{ books|length }})</h2>
+            {% if books %}
+            <table class="book-table">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Pages</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in books %}
+                    <tr>
+                        <td>
+                            <strong><a href="javascript:void(0)" onclick="openBook({{ b.id }})" style="color: #0066cc; font-size: 16px;">{{ b.title }}</a></strong>
+                            <div style="font-size: 13px; color: #666;" id="progress_{{ b.id }}">Page {{ b.current_page }} of {{ b.page_count }}</div>
+                        </td>
+                        <td>{{ b.page_count }}</td>
+                        <td>
+                            <button onclick="openBook({{ b.id }})" class="btn">Open</button>
+                            <form action="/delete/{{ b.id }}" method="post" style="display: inline; margin-left: 6px;" onsubmit="return confirm('Delete this PDF?');">
+                                <input type="submit" value="Delete" class="btn btn-danger">
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p style="color: #666;">No PDFs uploaded yet. Upload one above from any phone or laptop!</p>
+            {% endif %}
+        </div>
     </div>
 
-    <!-- Ultra-lightweight ES5 Multi-Book Offline handler for iOS 5 Safari -->
+
+    <!-- ==================== 2. FULLSCREEN READER VIEW ==================== -->
+    <div id="readerView">
+        <div id="topBar">
+            <a href="javascript:void(0)" onclick="closeBook()" class="nav-btn">&larr; Library</a>
+            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #2b2b2b; color: #ffffff; border: 1px solid #555555; padding: 4px 6px; font-size: 14px; border-radius: 4px; max-width: 170px; float: left; margin-top: 2px; -webkit-appearance: menulist;">
+                {% for b in books %}
+                <option value="{{ b.id }}">{{ b.title }} ({{ b.page_count }}p)</option>
+                {% endfor %}
+            </select>
+            <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 10px; font-weight: normal; color: #ffcc00 !important; font-size: 13px;">Save All</a>
+            <span class="page-badge" id="pageDisplay">1 / 1</span>
+        </div>
+        <div id="cacheStatus"></div>
+
+        <div id="pageArea">
+            <img id="pageImg" src="" alt="PDF Page">
+            <div id="tapHint">Swipe left for Next &bull; Swipe right for Prev</div>
+        </div>
+    </div>
+
+
+    <!-- ==================== 3. CLIENT SCRIPT (ES5 for iOS 5 Safari) ==================== -->
     <script>
     var allBooks = {{ books_json|safe }};
-    var currentBookId = {{ book.id }};
-    var currentPage = {{ current_page }};
-    var totalPages = {{ book.page_count }};
+    var currentBook = null;
+    var currentPage = 1;
 
     function getBook(id) {
         for (var i = 0; i < allBooks.length; i++) {
@@ -376,30 +390,149 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
         return null;
     }
 
-    function switchBook(newId) {
-        var b = getBook(newId);
+    function openBook(id, page) {
+        var b = getBook(id);
         if (!b) return;
-        currentBookId = b.id;
-        totalPages = b.page_count;
-        currentPage = b.current_page || 1;
-        document.getElementById('bookSelect').value = newId;
-        goToPage(currentPage);
+        currentBook = b;
+
+        if (page) {
+            currentPage = page;
+        } else {
+            // Check localStorage or default to 1
+            try {
+                var saved = localStorage.getItem('page_' + b.id);
+                currentPage = saved ? parseInt(saved, 10) : (b.current_page || 1);
+            } catch(e) {
+                currentPage = b.current_page || 1;
+            }
+        }
+        currentPage = Math.max(1, Math.min(currentPage, b.page_count));
+
+        // Save active book & page to localStorage
+        try {
+            localStorage.setItem('ipad_active_book', b.id);
+            localStorage.setItem('page_' + b.id, currentPage);
+        } catch(e) {}
+
+        // Switch to reader view without changing browser URL
+        document.getElementById('libraryView').style.display = 'none';
+        document.getElementById('readerView').style.display = 'block';
+        document.getElementById('readerBookSelect').value = b.id;
+
+        renderPage();
     }
 
-    var startX = 0;
-    var startY = 0;
-    var startTime = 0;
+    function closeBook() {
+        try {
+            localStorage.removeItem('ipad_active_book');
+        } catch(e) {}
+        document.getElementById('readerView').style.display = 'none';
+        document.getElementById('libraryView').style.display = 'block';
+        window.scrollTo(0, 0);
+    }
 
+    function renderPage() {
+        if (!currentBook) return;
+        var img = document.getElementById('pageImg');
+        img.src = '/page/' + currentBook.id + '/' + currentPage;
+
+        document.getElementById('pageDisplay').innerText = currentPage + ' / ' + currentBook.page_count;
+        window.scrollTo(0, 0);
+
+        // Update progress in localStorage
+        try {
+            localStorage.setItem('page_' + currentBook.id, currentPage);
+        } catch(e) {}
+
+        // Update label in library view if present
+        var progEl = document.getElementById('progress_' + currentBook.id);
+        if (progEl) {
+            progEl.innerText = 'Page ' + currentPage + ' of ' + currentBook.page_count;
+        }
+
+        // Silent bookmark ping if network available
+        var ping = new Image();
+        ping.src = '/bookmark/' + currentBook.id + '/' + currentPage;
+
+        // Preload next and previous
+        if (currentPage < currentBook.page_count) {
+            var n = new Image();
+            n.src = '/page/' + currentBook.id + '/' + (currentPage + 1);
+        }
+        if (currentPage > 1) {
+            var p = new Image();
+            p.src = '/page/' + currentBook.id + '/' + (currentPage - 1);
+        }
+    }
+
+    function nextPage() {
+        if (currentBook && currentPage < currentBook.page_count) {
+            currentPage++;
+            renderPage();
+        }
+    }
+
+    function prevPage() {
+        if (currentBook && currentPage > 1) {
+            currentPage--;
+            renderPage();
+        }
+    }
+
+    // Touch swipe navigation
+    var startX = 0, startY = 0, startTime = 0;
+    window.addEventListener('touchstart', function(e) {
+        if (e.touches && e.touches.length === 1) {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            startTime = new Date().getTime();
+        }
+    }, false);
+
+    window.addEventListener('touchend', function(e) {
+        if (document.getElementById('readerView').style.display === 'none') return;
+        if (!e.changedTouches || e.changedTouches.length !== 1) return;
+
+        var endX = e.changedTouches[0].clientX;
+        var endY = e.changedTouches[0].clientY;
+        var diffX = endX - startX;
+        var diffY = endY - startY;
+        var absX = Math.abs(diffX);
+        var absY = Math.abs(diffY);
+        var duration = new Date().getTime() - startTime;
+
+        // Horizontal swipe gesture
+        if (absX >= 35 && absX > absY && duration < 900) {
+            if (diffX < 0) nextPage();
+            else prevPage();
+            return;
+        }
+
+        // Light edge tap (right 30% = next, left 30% = prev)
+        if (absX < 15 && absY < 15 && duration < 350) {
+            var width = window.innerWidth || 1024;
+            if (endX > width * 0.70) nextPage();
+            else if (endX < width * 0.30) prevPage();
+        }
+    }, false);
+
+    // Keyboard support
+    document.addEventListener('keydown', function(e) {
+        if (document.getElementById('readerView').style.display === 'none') return;
+        if (e.keyCode === 37) prevPage();
+        else if (e.keyCode === 39 || e.keyCode === 32) nextPage();
+    }, false);
+
+    // Batch offline caching (for all books)
     var isCaching = false;
     function startOfflineCacheAll() {
         if (isCaching) return;
         isCaching = true;
-        var btn = document.getElementById('cacheBtn');
-        var status = document.getElementById('cacheStatus');
-        status.style.display = 'block';
-        status.style.color = '#ffcc00';
-        status.innerText = 'Preparing to cache all documents...';
-        btn.style.opacity = '0.5';
+
+        var statusTop = document.getElementById('cacheStatus');
+        var statusLib = document.getElementById('libCacheStatus');
+        statusTop.style.display = 'block';
+        statusTop.style.color = '#ffcc00';
 
         var queue = [];
         for (var i = 0; i < allBooks.length; i++) {
@@ -414,20 +547,24 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
 
         function processQueue() {
             if (queueIdx >= totalItems) {
-                status.style.color = '#34c759';
-                status.innerText = 'Saved all ' + allBooks.length + ' documents (' + totalItems + ' pages)! Ready for school offline.';
-                btn.innerText = 'All Offline Ready';
-                btn.style.color = '#34c759 !important';
-                btn.style.opacity = '1.0';
+                var doneMsg = 'Saved all ' + allBooks.length + ' books (' + totalItems + ' pages)! Ready for school offline.';
+                statusTop.style.color = '#34c759';
+                statusTop.innerText = doneMsg;
+                if (statusLib) {
+                    statusLib.style.color = '#28a745';
+                    statusLib.innerText = doneMsg;
+                }
                 setTimeout(function() {
-                    status.style.display = 'none';
+                    statusTop.style.display = 'none';
                 }, 7000);
                 isCaching = false;
                 return;
             }
 
             var item = queue[queueIdx];
-            status.innerText = 'Saving ' + item.title + ' (' + item.page + '/' + item.total + ') • ' + (queueIdx + 1) + '/' + totalItems;
+            var msg = 'Saving ' + item.title + ' (' + item.page + '/' + item.total + ') • ' + (queueIdx + 1) + '/' + totalItems;
+            statusTop.innerText = msg;
+            if (statusLib) statusLib.innerText = msg;
 
             var temp = new Image();
             temp.onload = temp.onerror = function() {
@@ -443,103 +580,15 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
         processQueue();
     }
 
-    function preload(p) {
-        if (p >= 1 && p <= totalPages) {
-            var img = new Image();
-            img.src = '/page/' + currentBookId + '/' + p;
-        }
-    }
-
-    function goToPage(p) {
-        if (p < 1 || p > totalPages) {
-            return;
-        }
-        currentPage = p;
-
-        // Instant image swap without reloading webpage
-        var img = document.getElementById('pageImg');
-        if (img) {
-            img.src = '/page/' + currentBookId + '/' + p;
-        }
-
-        // Update page indicator badge
-        var display = document.getElementById('pageDisplay');
-        if (display) {
-            display.innerText = p + ' / ' + totalPages;
-        }
-
-        // Scroll back to top smoothly for next page
-        window.scrollTo(0, 0);
-
-        // Preload next and previous pages for instant response
-        preload(p + 1);
-        preload(p - 1);
-
-        // Update server reading progress silently
-        var ping = new Image();
-        ping.src = '/bookmark/' + currentBookId + '/' + p;
-
-        // Update browser URL silently if history API supported
-        if (window.history && window.history.replaceState) {
-            window.history.replaceState(null, '', '/read/' + currentBookId + '?page=' + p);
-        }
-    }
-
-    // Touch event listeners for iOS 5 Safari
-    window.addEventListener('touchstart', function(e) {
-        if (e.touches && e.touches.length === 1) {
-            startX = e.touches[0].clientX;
-            startY = e.touches[0].clientY;
-            startTime = new Date().getTime();
-        }
-    }, false);
-
-    window.addEventListener('touchend', function(e) {
-        if (!e.changedTouches || e.changedTouches.length !== 1) return;
-
-        var endX = e.changedTouches[0].clientX;
-        var endY = e.changedTouches[0].clientY;
-        var diffX = endX - startX;
-        var diffY = endY - startY;
-        var absX = Math.abs(diffX);
-        var absY = Math.abs(diffY);
-        var duration = new Date().getTime() - startTime;
-
-        // 1. Horizontal swipe gesture
-        if (absX >= 35 && absX > absY && duration < 900) {
-            if (diffX < 0) {
-                // Swipe Left -> Next Page
-                goToPage(currentPage + 1);
-            } else {
-                // Swipe Right -> Previous Page
-                goToPage(currentPage - 1);
+    // Auto-restore last opened book on reload / refresh
+    window.addEventListener('load', function() {
+        try {
+            var savedBook = localStorage.getItem('ipad_active_book');
+            if (savedBook && getBook(savedBook)) {
+                openBook(savedBook);
             }
-            return;
-        }
-
-        // 2. Light tap on left/right edges (tap right 30% = next, tap left 30% = prev)
-        if (absX < 15 && absY < 15 && duration < 350) {
-            var width = window.innerWidth || document.documentElement.clientWidth || 1024;
-            if (endX > width * 0.70) {
-                goToPage(currentPage + 1);
-            } else if (endX < width * 0.30) {
-                goToPage(currentPage - 1);
-            }
-        }
+        } catch(e) {}
     }, false);
-
-    // Keyboard support for external iPad keyboard or PC testing
-    document.addEventListener('keydown', function(e) {
-        if (e.keyCode === 37) { // Left arrow
-            goToPage(currentPage - 1);
-        } else if (e.keyCode === 39 || e.keyCode === 32) { // Right arrow or space
-            goToPage(currentPage + 1);
-        }
-    }, false);
-
-    // Initial preloads
-    preload(currentPage + 1);
-    preload(currentPage + 2);
     </script>
 
 </body>
@@ -548,11 +597,34 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
 @app.route('/')
 def index():
     conn = get_db()
-    books = conn.execute('SELECT * FROM books ORDER BY created_at DESC').fetchall()
+    books_rows = conn.execute('SELECT * FROM books ORDER BY created_at DESC').fetchall()
     conn.close()
+
+    books_data = [
+        {
+            'id': b['id'],
+            'title': b['title'],
+            'page_count': b['page_count'],
+            'current_page': b['current_page']
+        }
+        for b in books_rows
+    ]
+    books_json = json.dumps(books_data)
     local_ip = get_local_ip()
     port = os.environ.get('PORT', 5000)
-    return render_template_string(INDEX_HTML, books=books, local_ip=local_ip, port=port)
+
+    return render_template_string(
+        SPA_HTML,
+        books=books_data,
+        books_json=books_json,
+        local_ip=local_ip,
+        port=port
+    )
+
+@app.route('/read/<int:book_id>')
+def read_book_redirect(book_id):
+    # Redirect legacy /read/X links straight to root SPA
+    return redirect(url_for('index'))
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -587,51 +659,7 @@ def upload():
     if page_count > 1:
         render_page_to_jpeg(save_path, 2, CACHE_DIR / f"{book_id}_p2.jpg")
 
-    return redirect(url_for('read_book', book_id=book_id))
-
-@app.route('/read/<int:book_id>')
-def read_book(book_id):
-    conn = get_db()
-    book = conn.execute('SELECT * FROM books WHERE id = ?', (book_id,)).fetchone()
-    if not book:
-        conn.close()
-        abort(404)
-    
-    try:
-        current_page = int(request.args.get('page', book['current_page']))
-    except ValueError:
-        current_page = 1
-    
-    current_page = max(1, min(current_page, book['page_count']))
-
-    all_books_rows = conn.execute('SELECT id, title, page_count, current_page FROM books ORDER BY created_at DESC').fetchall()
-    all_books = [
-        {
-            'id': b['id'],
-            'title': b['title'],
-            'page_count': b['page_count'],
-            'current_page': b['current_page']
-        }
-        for b in all_books_rows
-    ]
-    books_json = json.dumps(all_books)
-    conn.close()
-
-    # Pre-render current, next, and previous pages
-    pdf_path = UPLOADS_DIR / book['filename']
-    render_page_to_jpeg(pdf_path, current_page, CACHE_DIR / f"{book_id}_p{current_page}.jpg")
-    if current_page < book['page_count']:
-        render_page_to_jpeg(pdf_path, current_page + 1, CACHE_DIR / f"{book_id}_p{current_page + 1}.jpg")
-    if current_page > 1:
-        render_page_to_jpeg(pdf_path, current_page - 1, CACHE_DIR / f"{book_id}_p{current_page - 1}.jpg")
-
-    return render_template_string(
-        SWIPE_READER_HTML,
-        book=book,
-        all_books=all_books,
-        books_json=books_json,
-        current_page=current_page
-    )
+    return redirect(url_for('index'))
 
 @app.route('/page/<int:book_id>/<int:page_num>')
 def get_page(book_id, page_num):
@@ -702,7 +730,6 @@ def offline_manifest():
         '/icon.png'
     ]
     for b in books:
-        lines.append(f'/read/{b["id"]}')
         for p in range(1, b["page_count"] + 1):
             lines.append(f'/page/{b["id"]}/{p}')
     lines.append('NETWORK:')
