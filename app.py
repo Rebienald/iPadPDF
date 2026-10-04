@@ -484,15 +484,22 @@ SPA_HTML = '''<!DOCTYPE html>
         }
     }
 
+    var lastNavTime = 0;
     function nextPage() {
+        var now = new Date().getTime();
+        if (now - lastNavTime < 350) return;
         if (currentBook && currentPage < currentBook.page_count) {
+            lastNavTime = now;
             currentPage++;
             renderPage();
         }
     }
 
     function prevPage() {
+        var now = new Date().getTime();
+        if (now - lastNavTime < 350) return;
         if (currentBook && currentPage > 1) {
+            lastNavTime = now;
             currentPage--;
             renderPage();
         }
@@ -533,20 +540,12 @@ SPA_HTML = '''<!DOCTYPE html>
         var absY = Math.abs(diffY);
         var duration = new Date().getTime() - startTime;
 
-        if (absX >= 35 && absX > absY && duration < 900) {
+        // Clean, intentional horizontal swipe only
+        if (absX >= 50 && absX > (absY * 1.5) && duration >= 50 && duration < 900) {
             if (e.cancelable) e.preventDefault();
-            if (diffX < 0) nextPage();
-            else prevPage();
-            return;
-        }
-
-        if (absX < 15 && absY < 15 && duration < 350) {
-            var width = window.innerWidth || 1024;
-            if (endX > width * 0.75) {
-                if (e.cancelable) e.preventDefault();
+            if (diffX < 0) {
                 nextPage();
-            } else if (endX < width * 0.25) {
-                if (e.cancelable) e.preventDefault();
+            } else {
                 prevPage();
             }
         }
