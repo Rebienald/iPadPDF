@@ -141,7 +141,7 @@ SPA_HTML = '''<!DOCTYPE html>
 <html manifest="/offline.appcache">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <link rel="apple-touch-icon" href="/icon.png">
@@ -160,6 +160,8 @@ SPA_HTML = '''<!DOCTYPE html>
         font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
         background-color: #ffffff;
         color: #000000;
+        -webkit-overflow-scrolling: touch;
+        overflow-x: hidden;
     }
 
     /* Monochrome Library View */
@@ -234,6 +236,7 @@ SPA_HTML = '''<!DOCTYPE html>
         min-height: 100%;
         width: 100%;
         overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
     }
     #topBar {
         position: fixed;
@@ -282,6 +285,7 @@ SPA_HTML = '''<!DOCTYPE html>
         text-align: center;
         margin: 0 auto 14px auto;
         background: #000000;
+        min-height: 500px;
     }
     .pdf-page {
         display: block;
@@ -423,6 +427,7 @@ SPA_HTML = '''<!DOCTYPE html>
             localStorage.setItem('page_' + b.id, targetPage);
         } catch(e) {}
 
+        document.body.style.backgroundColor = '#000000';
         document.getElementById('libraryView').style.display = 'none';
         document.getElementById('readerView').style.display = 'block';
         document.getElementById('readerBookSelect').value = b.id;
@@ -434,6 +439,7 @@ SPA_HTML = '''<!DOCTYPE html>
         try {
             localStorage.removeItem('ipad_active_book');
         } catch(e) {}
+        document.body.style.backgroundColor = '#ffffff';
         document.getElementById('pageArea').innerHTML = '';
         document.getElementById('readerView').style.display = 'none';
         document.getElementById('libraryView').style.display = 'block';
