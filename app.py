@@ -229,14 +229,20 @@ SPA_HTML = '''<!DOCTYPE html>
     /* Monochrome Fullscreen Reader View */
     #readerView {
         display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        height: 100%;
         background-color: #000000;
         color: #ffffff;
-        min-height: 100%;
-        width: 100%;
-        overflow-x: hidden;
+        overflow: hidden;
+        z-index: 100;
     }
     #topBar {
-        position: fixed;
+        position: absolute;
         top: 0;
         left: 0;
         right: 0;
@@ -272,26 +278,36 @@ SPA_HTML = '''<!DOCTYPE html>
         letter-spacing: 1px;
     }
     #pageArea {
-        padding-top: 48px;
+        position: absolute;
+        top: 44px;
+        left: 0;
+        right: 0;
+        bottom: 0;
         text-align: center;
-        width: 100%;
-        min-height: 100%;
+        overflow: hidden;
         background-color: #000000;
     }
     #pageImg {
         display: block;
         margin: 0 auto;
         max-width: 100%;
+        max-height: 100%;
+        width: auto;
         height: auto;
         background: #ffffff;
         border: 1px solid #333333;
+        box-sizing: border-box;
     }
     #tapHint {
-        font-size: 11px;
-        color: #666666;
+        position: absolute;
+        bottom: 2px;
+        left: 0;
+        right: 0;
+        font-size: 10px;
+        color: #555555;
         text-align: center;
-        padding: 6px 0;
         text-transform: uppercase;
+        pointer-events: none;
     }
     #cacheStatus {
         display: none;
@@ -427,10 +443,12 @@ SPA_HTML = '''<!DOCTYPE html>
             localStorage.setItem('page_' + b.id, currentPage);
         } catch(e) {}
 
+        document.body.style.overflow = 'hidden';
         document.getElementById('libraryView').style.display = 'none';
         document.getElementById('readerView').style.display = 'block';
         document.getElementById('readerBookSelect').value = b.id;
 
+        fitPage();
         renderPage();
     }
 
@@ -446,13 +464,24 @@ SPA_HTML = '''<!DOCTYPE html>
             activePreload.src = '';
             activePreload = null;
         }
+        document.body.style.overflow = 'auto';
         document.getElementById('readerView').style.display = 'none';
         document.getElementById('libraryView').style.display = 'block';
         window.scrollTo(0, 0);
     }
 
+    function fitPage() {
+        var img = document.getElementById('pageImg');
+        if (!img) return;
+        var h = (window.innerHeight || document.documentElement.clientHeight || 768) - 46;
+        var w = (window.innerWidth || document.documentElement.clientWidth || 1024);
+        img.style.maxHeight = h + 'px';
+        img.style.maxWidth = w + 'px';
+    }
+
     function renderPage() {
         if (!currentBook) return;
+        fitPage();
         var img = document.getElementById('pageImg');
         img.src = '/page/' + currentBook.id + '/' + currentPage + '?v=3';
 
@@ -549,6 +578,18 @@ SPA_HTML = '''<!DOCTYPE html>
                 prevPage();
             }
         }
+    }, false);
+
+    window.addEventListener('touchmove', function(e) {
+        if (document.getElementById('readerView').style.display !== 'none') {
+            if (isInteractive(e.target)) return;
+            if (e.cancelable) e.preventDefault();
+        }
+    }, false);
+
+    window.addEventListener('resize', fitPage, false);
+    window.addEventListener('orientationchange', function() {
+        setTimeout(fitPage, 200);
     }, false);
 
     document.addEventListener('keydown', function(e) {
