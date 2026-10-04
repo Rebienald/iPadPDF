@@ -240,33 +240,39 @@ SPA_HTML = '''<!DOCTYPE html>
         top: 0;
         left: 0;
         right: 0;
-        height: 38px;
+        height: 44px;
         background: #000000;
         border-bottom: 1px solid #444444;
         padding: 5px 10px;
         z-index: 999;
         font-size: 14px;
+        box-sizing: border-box;
     }
     .nav-btn {
         color: #ffffff !important;
         text-decoration: none;
         font-weight: bold;
         float: left;
-        line-height: 28px;
+        line-height: 32px;
         font-size: 14px;
-        margin-right: 12px;
+        padding: 0 12px;
+        background: #222222;
+        border: 1px solid #666666;
+        border-radius: 4px;
+        margin-right: 10px;
         cursor: pointer;
+        display: inline-block;
     }
     .page-badge {
         float: right;
         color: #ffffff;
         font-size: 14px;
-        line-height: 28px;
+        line-height: 32px;
         font-weight: bold;
         letter-spacing: 1px;
     }
     #pageArea {
-        padding-top: 40px;
+        padding-top: 48px;
         text-align: center;
         width: 100%;
         min-height: 100%;
@@ -369,12 +375,12 @@ SPA_HTML = '''<!DOCTYPE html>
     <div id="readerView">
         <div id="topBar">
             <a href="javascript:void(0)" onclick="closeBook()" class="nav-btn">&larr; Library</a>
-            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #000000; color: #ffffff; border: 1px solid #666666; padding: 4px; font-size: 13px; max-width: 175px; float: left; margin-top: 2px; -webkit-appearance: menulist;">
+            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #222222; color: #ffffff; border: 1px solid #666666; border-radius: 4px; padding: 4px 8px; font-size: 14px; height: 32px; max-width: 185px; float: left; margin-top: 0px; -webkit-appearance: menulist;">
                 {% for b in books %}
                 <option value="{{ b.id }}">{{ b.title }} ({{ b.page_count }}p)</option>
                 {% endfor %}
             </select>
-            <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 10px; font-size: 12px; font-weight: normal; color: #cccccc !important;">Save All</a>
+            <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 10px; font-size: 13px; font-weight: normal; color: #cccccc !important;">Save All</a>
             <span class="page-badge" id="pageDisplay">1 / 1</span>
         </div>
         <div id="cacheStatus"></div>
@@ -492,6 +498,16 @@ SPA_HTML = '''<!DOCTYPE html>
         }
     }
 
+    function isInteractive(el) {
+        while (el && el !== document.body && el !== document) {
+            if (el.id === 'topBar' || el.tagName === 'A' || el.tagName === 'SELECT' || el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'OPTION') {
+                return true;
+            }
+            el = el.parentNode;
+        }
+        return false;
+    }
+
     var startX = 0, startY = 0, startTime = 0;
     window.addEventListener('touchstart', function(e) {
         if (e.touches && e.touches.length === 1) {
@@ -505,8 +521,12 @@ SPA_HTML = '''<!DOCTYPE html>
         if (document.getElementById('readerView').style.display === 'none') return;
         if (!e.changedTouches || e.changedTouches.length !== 1) return;
 
+        if (startY <= 55 || isInteractive(e.target)) return;
+
         var endX = e.changedTouches[0].clientX;
         var endY = e.changedTouches[0].clientY;
+        if (endY <= 55) return;
+
         var diffX = endX - startX;
         var diffY = endY - startY;
         var absX = Math.abs(diffX);
@@ -522,10 +542,10 @@ SPA_HTML = '''<!DOCTYPE html>
 
         if (absX < 15 && absY < 15 && duration < 350) {
             var width = window.innerWidth || 1024;
-            if (endX > width * 0.70) {
+            if (endX > width * 0.75) {
                 if (e.cancelable) e.preventDefault();
                 nextPage();
-            } else if (endX < width * 0.30) {
+            } else if (endX < width * 0.25) {
                 if (e.cancelable) e.preventDefault();
                 prevPage();
             }
