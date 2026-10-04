@@ -339,9 +339,11 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
     <!-- Minimal top header -->
     <div id="topBar">
         <a href="/" class="nav-link">&larr; Library</a>
+        <a href="javascript:void(0)" onclick="startOfflineCache()" class="nav-link" id="cacheBtn" style="margin-left: 14px; font-weight: normal; color: #ffcc00 !important;">Save Offline</a>
         <span class="page-badge" id="pageDisplay">{{ current_page }} / {{ book.page_count }}</span>
         <div class="book-title">{{ book.title }}</div>
     </div>
+    <div id="cacheStatus" style="display: none; background: #2a2a2a; border-bottom: 1px solid #444; color: #ffcc00; text-align: center; font-size: 13px; padding: 6px 10px; position: fixed; top: 38px; left: 0; right: 0; z-index: 998;"></div>
 
     <!-- The PDF Page Container -->
     <div id="pageArea">
@@ -349,7 +351,7 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
         <div id="tapHint">Swipe left for Next &bull; Swipe right for Prev</div>
     </div>
 
-    <!-- Ultra-lightweight ES5 Touch/Swipe & Tap handler for iOS 5 Safari -->
+    <!-- Ultra-lightweight ES5 Touch/Swipe & Offline handler for iOS 5 Safari -->
     <script>
     var bookId = {{ book.id }};
     var currentPage = {{ current_page }};
@@ -358,6 +360,47 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
     var startX = 0;
     var startY = 0;
     var startTime = 0;
+
+    var isCaching = false;
+    function startOfflineCache() {
+        if (isCaching) return;
+        isCaching = true;
+        var btn = document.getElementById('cacheBtn');
+        var status = document.getElementById('cacheStatus');
+        status.style.display = 'block';
+        status.style.color = '#ffcc00';
+        status.innerText = 'Starting offline save...';
+        btn.style.opacity = '0.5';
+
+        var currentIdx = 1;
+        function cacheNext() {
+            if (currentIdx > totalPages) {
+                status.style.color = '#34c759';
+                status.innerText = 'Saved! You can now turn off Wi-Fi and swipe through the entire book.';
+                btn.innerText = 'Offline Ready';
+                btn.style.color = '#34c759 !important';
+                btn.style.opacity = '1.0';
+                setTimeout(function() {
+                    status.style.display = 'none';
+                }, 5000);
+                isCaching = false;
+                return;
+            }
+
+            status.innerText = 'Saving for offline: Page ' + currentIdx + ' of ' + totalPages + '...';
+            var temp = new Image();
+            temp.onload = temp.onerror = function() {
+                temp.onload = null;
+                temp.onerror = null;
+                temp = null;
+                currentIdx++;
+                setTimeout(cacheNext, 50);
+            };
+            temp.src = '/page/' + bookId + '/' + currentIdx;
+        }
+
+        cacheNext();
+    }
 
     function preload(p) {
         if (p >= 1 && p <= totalPages) {
@@ -556,9 +599,9 @@ def get_page(book_id, page_num):
         if not success:
             abort(500)
 
-    # Return with cache headers for instant iPad back/forward navigation
+    # Return with permanent cache headers for offline iPad reading
     response = send_file(cache_file, mimetype='image/jpeg')
-    response.headers['Cache-Control'] = 'public, max-age=86400'
+    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
     return response
 
 @app.route('/bookmark/<int:book_id>/<int:page_num>')
