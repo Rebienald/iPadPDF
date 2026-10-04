@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-iPadPDF - Ultra-Lightweight Single Page Application (SPA) for iPad 1st Gen (iOS 5)
-100% Offline-Resilient:
-- All books and reader in ONE single HTML page (no broken offline page navigations)
-- URL never changes, so Safari Refresh NEVER breaks
-- Automatically restores last book and page from localStorage on reload
-- Sequential memory-safe cache for all books
-- Pure swipe & edge-tap navigation
+iPadPDF - Ultra-Lightweight Pure Monochrome (Grayscale) Single Page App
+Optimized for iPad 1st Gen (iOS 5, 256MB RAM):
+- Pure black, white, and gray minimalist interface (zero colors)
+- Pages rendered in 8-bit grayscale JPEG (saves ~40% file size and RAM)
+- Single Page Application (SPA): no page reloads, no broken offline refreshes
+- Swipe left/right & edge-tap navigation
+- LocalStorage state persistence
 """
 
 import os
@@ -76,16 +76,17 @@ def count_pages(pdf_path):
         app.logger.error(f'Error counting pages: {e}')
         return 1
 
-def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=130, quality=78):
+def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=125, quality=75):
     output_jpg = Path(output_jpg)
     if output_jpg.exists():
         return True
 
-    # Method 1: Try native pdftoppm (fastest C++ implementation)
+    # Method 1: Try native pdftoppm in true grayscale (fastest & lowest RAM)
     if shutil.which('pdftoppm'):
         prefix = output_jpg.with_suffix('')
         cmd = [
             'pdftoppm',
+            '-gray',
             '-jpeg',
             '-r', str(dpi),
             '-f', str(page_num),
@@ -98,7 +99,7 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=130, quality=78):
         if res.returncode == 0 and output_jpg.exists():
             return True
 
-    # Method 2: Fallback to portable pypdfium2
+    # Method 2: Fallback to portable pypdfium2 in grayscale
     try:
         doc = pdfium.PdfDocument(str(pdf_path))
         if page_num < 1 or page_num > len(doc):
@@ -106,7 +107,7 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=130, quality=78):
             return False
         page = doc[page_num - 1]
         scale = dpi / 72.0
-        pil_img = page.render(scale=scale).to_pil()
+        pil_img = page.render(scale=scale).to_pil().convert('L')
         pil_img.save(str(output_jpg), 'JPEG', quality=quality)
         doc.close()
         return True
@@ -114,20 +115,21 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=130, quality=78):
         app.logger.error(f'Failed rendering page {page_num}: {e}')
         return False
 
-# Single unified HTML page containing both Library and Fullscreen Reader
+# Pure monochrome minimalist single page template
 SPA_HTML = '''<!DOCTYPE html>
 <html manifest="/offline.appcache">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <link rel="apple-touch-icon" href="/icon.png">
-    <title>iPad PDF</title>
+    <title>PDF</title>
     <style>
     * {
         -webkit-box-sizing: border-box;
         box-sizing: border-box;
+        border-radius: 0 !important;
     }
     body, html {
         margin: 0;
@@ -135,92 +137,78 @@ SPA_HTML = '''<!DOCTYPE html>
         width: 100%;
         min-height: 100%;
         font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+        background-color: #ffffff;
+        color: #000000;
     }
-    
-    /* Library View Styles */
+
+    /* Monochrome Library View */
     #libraryView {
-        background-color: #f7f7f7;
-        color: #222222;
-        padding: 12px;
-        font-size: 16px;
+        background-color: #ffffff;
+        color: #000000;
+        padding: 14px;
+        font-size: 15px;
         line-height: 1.4;
     }
-    .header {
+    .box {
         background: #ffffff;
-        border: 1px solid #d0d0d0;
-        padding: 14px 16px;
-        margin-bottom: 14px;
-        border-radius: 4px;
+        border: 1px solid #000000;
+        padding: 12px;
+        margin-bottom: 12px;
     }
-    .header h1 {
-        margin: 0 0 6px 0;
-        font-size: 22px;
-    }
-    .ip-banner {
-        background: #eef7ff;
-        border: 1px solid #b8daff;
-        padding: 10px 14px;
-        margin-bottom: 14px;
-        border-radius: 4px;
-        font-size: 15px;
-    }
-    .card {
-        background: #ffffff;
-        border: 1px solid #d0d0d0;
-        padding: 14px;
-        margin-bottom: 14px;
-        border-radius: 4px;
+    .box-title {
+        font-size: 16px;
+        font-weight: bold;
+        margin: 0 0 8px 0;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
     .btn {
         display: inline-block;
-        background: #007aff;
+        background: #000000;
         color: #ffffff !important;
-        padding: 8px 16px;
-        border: 1px solid #0056b3;
-        border-radius: 4px;
-        font-size: 15px;
+        border: 1px solid #000000;
+        padding: 8px 14px;
+        font-size: 14px;
         font-weight: bold;
         cursor: pointer;
         text-align: center;
         text-decoration: none;
         -webkit-appearance: none;
     }
-    .btn-success {
-        background: #28a745;
-        border-color: #1e7e34;
-    }
-    .btn-danger {
-        background: #dc3545;
-        border-color: #bd2130;
-        padding: 6px 12px;
-        font-size: 13px;
+    .btn-light {
+        background: #ffffff;
+        color: #000000 !important;
+        border: 1px solid #000000;
     }
     .book-table {
         width: 100%;
         border-collapse: collapse;
-        margin-top: 10px;
+        border: 1px solid #000000;
+        margin-top: 8px;
     }
     .book-table th, .book-table td {
-        padding: 12px 8px;
-        border-bottom: 1px solid #e0e0e0;
+        padding: 10px 8px;
+        border: 1px solid #cccccc;
         text-align: left;
         vertical-align: middle;
     }
     .book-table th {
         background: #f0f0f0;
-        font-size: 14px;
+        border-bottom: 2px solid #000000;
+        font-size: 13px;
+        text-transform: uppercase;
     }
     input[type="file"] {
-        font-size: 16px;
-        padding: 8px;
-        margin-bottom: 12px;
+        font-size: 15px;
+        padding: 6px 0;
+        margin-bottom: 10px;
         display: block;
     }
 
-    /* Reader View Styles (Dark Fullscreen) */
+    /* Monochrome Fullscreen Reader View */
     #readerView {
         display: none;
-        background-color: #1e1e1e;
+        background-color: #000000;
         color: #ffffff;
         min-height: 100%;
         width: 100%;
@@ -232,34 +220,36 @@ SPA_HTML = '''<!DOCTYPE html>
         left: 0;
         right: 0;
         height: 38px;
-        background: rgba(0, 0, 0, 0.90);
-        border-bottom: 1px solid #333333;
-        padding: 5px 12px;
+        background: #000000;
+        border-bottom: 1px solid #444444;
+        padding: 5px 10px;
         z-index: 999;
-        font-size: 15px;
+        font-size: 14px;
     }
     .nav-btn {
-        color: #5ac8fa !important;
+        color: #ffffff !important;
         text-decoration: none;
         font-weight: bold;
         float: left;
         line-height: 28px;
-        font-size: 15px;
-        margin-right: 10px;
+        font-size: 14px;
+        margin-right: 12px;
         cursor: pointer;
     }
     .page-badge {
         float: right;
-        color: #cccccc;
+        color: #ffffff;
         font-size: 14px;
         line-height: 28px;
         font-weight: bold;
+        letter-spacing: 1px;
     }
     #pageArea {
         padding-top: 40px;
         text-align: center;
         width: 100%;
         min-height: 100%;
+        background-color: #000000;
     }
     #pageImg {
         display: block;
@@ -267,19 +257,20 @@ SPA_HTML = '''<!DOCTYPE html>
         max-width: 100%;
         height: auto;
         background: #ffffff;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+        border: 1px solid #333333;
     }
     #tapHint {
-        font-size: 12px;
-        color: #777777;
+        font-size: 11px;
+        color: #666666;
         text-align: center;
-        padding: 8px 0;
+        padding: 6px 0;
+        text-transform: uppercase;
     }
     #cacheStatus {
         display: none;
-        background: #2a2a2a;
-        border-bottom: 1px solid #444;
-        color: #ffcc00;
+        background: #000000;
+        border-bottom: 1px solid #ffffff;
+        color: #ffffff;
         text-align: center;
         font-size: 13px;
         padding: 6px 10px;
@@ -293,35 +284,32 @@ SPA_HTML = '''<!DOCTYPE html>
 </head>
 <body>
 
-    <!-- ==================== 1. LIBRARY VIEW ==================== -->
+    <!-- ==================== 1. MONOCHROME LIBRARY VIEW ==================== -->
     <div id="libraryView">
-        <div class="header">
-            <h1>iPad PDF Library</h1>
-            <div>Offline PDF Reader for Gen 1 iPad. Swipe left/right to turn pages.</div>
+        <div class="box">
+            <div class="box-title">iPad PDF Library</div>
+            <div>Address: <strong>http://{{ local_ip }}:{{ port }}</strong></div>
         </div>
 
-        <div class="ip-banner">
-            <strong>Local Address:</strong> Open Safari on your iPad and go to:<br>
-            <span style="font-size: 20px; font-weight: bold; color: #0056b3;">http://{{ local_ip }}:{{ port }}</span>
+        <div class="box">
+            <div class="box-title">Offline Cache</div>
+            <div style="margin-bottom: 10px; font-size: 13px; color: #444444;">
+                Download all documents into iPad storage for offline reading:
+            </div>
+            <button onclick="startOfflineCacheAll()" id="libCacheBtn" class="btn" style="padding: 10px 18px;">Save All Books for Offline</button>
+            <div id="libCacheStatus" style="margin-top: 8px; font-size: 13px; font-weight: bold;"></div>
         </div>
 
-        <div class="card" style="background: #fff8e1; border-color: #ffe082;">
-            <strong style="color: #b78103; font-size: 16px;">School / Offline Preparation:</strong><br>
-            <span style="font-size: 14px; color: #555;">Tap this button once while connected to Wi-Fi to save all reviewers to your iPad storage:</span><br><br>
-            <button onclick="startOfflineCacheAll()" id="libCacheBtn" class="btn btn-success" style="font-size: 16px; padding: 10px 20px;">Save All Books for Offline (School)</button>
-            <div id="libCacheStatus" style="margin-top: 8px; font-weight: bold; color: #b78103;"></div>
-        </div>
-
-        <div class="card">
-            <h2 style="margin-top: 0; font-size: 18px;">Upload New PDF</h2>
+        <div class="box">
+            <div class="box-title">Upload Document</div>
             <form action="/upload" method="post" enctype="multipart/form-data">
                 <input type="file" name="pdf_file" accept=".pdf,application/pdf" required>
-                <input type="submit" value="Upload PDF" class="btn">
+                <input type="submit" value="Upload" class="btn">
             </form>
         </div>
 
-        <div class="card">
-            <h2 style="margin-top: 0; font-size: 18px;">My Documents ({{ books|length }})</h2>
+        <div class="box">
+            <div class="box-title">Documents ({{ books|length }})</div>
             {% if books %}
             <table class="book-table">
                 <thead>
@@ -335,14 +323,14 @@ SPA_HTML = '''<!DOCTYPE html>
                     {% for b in books %}
                     <tr>
                         <td>
-                            <strong><a href="javascript:void(0)" onclick="openBook({{ b.id }})" style="color: #0066cc; font-size: 16px;">{{ b.title }}</a></strong>
-                            <div style="font-size: 13px; color: #666;" id="progress_{{ b.id }}">Page {{ b.current_page }} of {{ b.page_count }}</div>
+                            <a href="javascript:void(0)" onclick="openBook({{ b.id }})" style="color: #000000; font-weight: bold; text-decoration: underline;">{{ b.title }}</a>
+                            <div style="font-size: 12px; color: #555555;" id="progress_{{ b.id }}">Page {{ b.current_page }} of {{ b.page_count }}</div>
                         </td>
                         <td>{{ b.page_count }}</td>
-                        <td>
-                            <button onclick="openBook({{ b.id }})" class="btn">Open</button>
-                            <form action="/delete/{{ b.id }}" method="post" style="display: inline; margin-left: 6px;" onsubmit="return confirm('Delete this PDF?');">
-                                <input type="submit" value="Delete" class="btn btn-danger">
+                        <td style="white-space: nowrap;">
+                            <button onclick="openBook({{ b.id }})" class="btn" style="padding: 6px 12px;">Open</button>
+                            <form action="/delete/{{ b.id }}" method="post" style="display: inline; margin-left: 4px;" onsubmit="return confirm('Delete this PDF?');">
+                                <input type="submit" value="Del" class="btn btn-light" style="padding: 6px 8px;">
                             </form>
                         </td>
                     </tr>
@@ -350,34 +338,34 @@ SPA_HTML = '''<!DOCTYPE html>
                 </tbody>
             </table>
             {% else %}
-            <p style="color: #666;">No PDFs uploaded yet. Upload one above from any phone or laptop!</p>
+            <p style="color: #555555; margin: 0;">No documents uploaded.</p>
             {% endif %}
         </div>
     </div>
 
 
-    <!-- ==================== 2. FULLSCREEN READER VIEW ==================== -->
+    <!-- ==================== 2. MONOCHROME READER VIEW ==================== -->
     <div id="readerView">
         <div id="topBar">
             <a href="javascript:void(0)" onclick="closeBook()" class="nav-btn">&larr; Library</a>
-            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #2b2b2b; color: #ffffff; border: 1px solid #555555; padding: 4px 6px; font-size: 14px; border-radius: 4px; max-width: 170px; float: left; margin-top: 2px; -webkit-appearance: menulist;">
+            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #000000; color: #ffffff; border: 1px solid #666666; padding: 4px; font-size: 13px; max-width: 175px; float: left; margin-top: 2px; -webkit-appearance: menulist;">
                 {% for b in books %}
                 <option value="{{ b.id }}">{{ b.title }} ({{ b.page_count }}p)</option>
                 {% endfor %}
             </select>
-            <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 10px; font-weight: normal; color: #ffcc00 !important; font-size: 13px;">Save All</a>
+            <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 10px; font-size: 12px; font-weight: normal; color: #cccccc !important;">Save All</a>
             <span class="page-badge" id="pageDisplay">1 / 1</span>
         </div>
         <div id="cacheStatus"></div>
 
         <div id="pageArea">
             <img id="pageImg" src="" alt="PDF Page">
-            <div id="tapHint">Swipe left for Next &bull; Swipe right for Prev</div>
+            <div id="tapHint">Swipe left: Next &bull; Swipe right: Prev</div>
         </div>
     </div>
 
 
-    <!-- ==================== 3. CLIENT SCRIPT (ES5 for iOS 5 Safari) ==================== -->
+    <!-- ==================== 3. SCRIPT (ES5 Monochrome Offline SPA) ==================== -->
     <script>
     var allBooks = {{ books_json|safe }};
     var currentBook = null;
@@ -398,7 +386,6 @@ SPA_HTML = '''<!DOCTYPE html>
         if (page) {
             currentPage = page;
         } else {
-            // Check localStorage or default to 1
             try {
                 var saved = localStorage.getItem('page_' + b.id);
                 currentPage = saved ? parseInt(saved, 10) : (b.current_page || 1);
@@ -408,13 +395,11 @@ SPA_HTML = '''<!DOCTYPE html>
         }
         currentPage = Math.max(1, Math.min(currentPage, b.page_count));
 
-        // Save active book & page to localStorage
         try {
             localStorage.setItem('ipad_active_book', b.id);
             localStorage.setItem('page_' + b.id, currentPage);
         } catch(e) {}
 
-        // Switch to reader view without changing browser URL
         document.getElementById('libraryView').style.display = 'none';
         document.getElementById('readerView').style.display = 'block';
         document.getElementById('readerBookSelect').value = b.id;
@@ -439,22 +424,18 @@ SPA_HTML = '''<!DOCTYPE html>
         document.getElementById('pageDisplay').innerText = currentPage + ' / ' + currentBook.page_count;
         window.scrollTo(0, 0);
 
-        // Update progress in localStorage
         try {
             localStorage.setItem('page_' + currentBook.id, currentPage);
         } catch(e) {}
 
-        // Update label in library view if present
         var progEl = document.getElementById('progress_' + currentBook.id);
         if (progEl) {
             progEl.innerText = 'Page ' + currentPage + ' of ' + currentBook.page_count;
         }
 
-        // Silent bookmark ping if network available
         var ping = new Image();
         ping.src = '/bookmark/' + currentBook.id + '/' + currentPage;
 
-        // Preload next and previous
         if (currentPage < currentBook.page_count) {
             var n = new Image();
             n.src = '/page/' + currentBook.id + '/' + (currentPage + 1);
@@ -479,7 +460,6 @@ SPA_HTML = '''<!DOCTYPE html>
         }
     }
 
-    // Touch swipe navigation
     var startX = 0, startY = 0, startTime = 0;
     window.addEventListener('touchstart', function(e) {
         if (e.touches && e.touches.length === 1) {
@@ -501,14 +481,12 @@ SPA_HTML = '''<!DOCTYPE html>
         var absY = Math.abs(diffY);
         var duration = new Date().getTime() - startTime;
 
-        // Horizontal swipe gesture
         if (absX >= 35 && absX > absY && duration < 900) {
             if (diffX < 0) nextPage();
             else prevPage();
             return;
         }
 
-        // Light edge tap (right 30% = next, left 30% = prev)
         if (absX < 15 && absY < 15 && duration < 350) {
             var width = window.innerWidth || 1024;
             if (endX > width * 0.70) nextPage();
@@ -516,14 +494,12 @@ SPA_HTML = '''<!DOCTYPE html>
         }
     }, false);
 
-    // Keyboard support
     document.addEventListener('keydown', function(e) {
         if (document.getElementById('readerView').style.display === 'none') return;
         if (e.keyCode === 37) prevPage();
         else if (e.keyCode === 39 || e.keyCode === 32) nextPage();
     }, false);
 
-    // Batch offline caching (for all books)
     var isCaching = false;
     function startOfflineCacheAll() {
         if (isCaching) return;
@@ -532,7 +508,6 @@ SPA_HTML = '''<!DOCTYPE html>
         var statusTop = document.getElementById('cacheStatus');
         var statusLib = document.getElementById('libCacheStatus');
         statusTop.style.display = 'block';
-        statusTop.style.color = '#ffcc00';
 
         var queue = [];
         for (var i = 0; i < allBooks.length; i++) {
@@ -547,13 +522,9 @@ SPA_HTML = '''<!DOCTYPE html>
 
         function processQueue() {
             if (queueIdx >= totalItems) {
-                var doneMsg = 'Saved all ' + allBooks.length + ' books (' + totalItems + ' pages)! Ready for school offline.';
-                statusTop.style.color = '#34c759';
+                var doneMsg = 'Saved all ' + allBooks.length + ' books (' + totalItems + ' pages) in grayscale. Ready offline.';
                 statusTop.innerText = doneMsg;
-                if (statusLib) {
-                    statusLib.style.color = '#28a745';
-                    statusLib.innerText = doneMsg;
-                }
+                if (statusLib) statusLib.innerText = doneMsg;
                 setTimeout(function() {
                     statusTop.style.display = 'none';
                 }, 7000);
@@ -562,7 +533,7 @@ SPA_HTML = '''<!DOCTYPE html>
             }
 
             var item = queue[queueIdx];
-            var msg = 'Saving ' + item.title + ' (' + item.page + '/' + item.total + ') • ' + (queueIdx + 1) + '/' + totalItems;
+            var msg = 'Caching ' + item.title + ' (' + item.page + '/' + item.total + ') • ' + (queueIdx + 1) + '/' + totalItems;
             statusTop.innerText = msg;
             if (statusLib) statusLib.innerText = msg;
 
@@ -572,7 +543,7 @@ SPA_HTML = '''<!DOCTYPE html>
                 temp.onerror = null;
                 temp = null;
                 queueIdx++;
-                setTimeout(processQueue, 40);
+                setTimeout(processQueue, 35);
             };
             temp.src = '/page/' + item.id + '/' + item.page;
         }
@@ -580,7 +551,6 @@ SPA_HTML = '''<!DOCTYPE html>
         processQueue();
     }
 
-    // Auto-restore last opened book on reload / refresh
     window.addEventListener('load', function() {
         try {
             var savedBook = localStorage.getItem('ipad_active_book');
@@ -623,7 +593,6 @@ def index():
 
 @app.route('/read/<int:book_id>')
 def read_book_redirect(book_id):
-    # Redirect legacy /read/X links straight to root SPA
     return redirect(url_for('index'))
 
 @app.route('/upload', methods=['POST'])
@@ -654,7 +623,7 @@ def upload():
     conn.commit()
     conn.close()
 
-    # Pre-render page 1 and page 2 so they are ready instantly
+    # Pre-render page 1 in grayscale
     render_page_to_jpeg(save_path, 1, CACHE_DIR / f"{book_id}_p1.jpg")
     if page_count > 1:
         render_page_to_jpeg(save_path, 2, CACHE_DIR / f"{book_id}_p2.jpg")
@@ -703,7 +672,6 @@ def delete_book(book_id):
             except Exception:
                 pass
         
-        # Clean up cached images for this book
         for img in CACHE_DIR.glob(f"{book_id}_p*.jpg"):
             try:
                 img.unlink()
