@@ -76,7 +76,7 @@ def count_pages(pdf_path):
         app.logger.error(f'Error counting pages: {e}')
         return 1
 
-def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=140, quality=82):
+def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=150, quality=85):
     output_jpg = Path(output_jpg)
     if output_jpg.exists():
         return True
@@ -421,7 +421,7 @@ SPA_HTML = '''<!DOCTYPE html>
     function renderPage() {
         if (!currentBook) return;
         var img = document.getElementById('pageImg');
-        img.src = '/page/' + currentBook.id + '/' + currentPage;
+        img.src = '/page/' + currentBook.id + '/' + currentPage + '?v=2';
 
         document.getElementById('pageDisplay').innerText = currentPage + ' / ' + currentBook.page_count;
         window.scrollTo(0, 0);
@@ -440,11 +440,11 @@ SPA_HTML = '''<!DOCTYPE html>
 
         if (currentPage < currentBook.page_count) {
             var n = new Image();
-            n.src = '/page/' + currentBook.id + '/' + (currentPage + 1);
+            n.src = '/page/' + currentBook.id + '/' + (currentPage + 1) + '?v=2';
         }
         if (currentPage > 1) {
             var p = new Image();
-            p.src = '/page/' + currentBook.id + '/' + (currentPage - 1);
+            p.src = '/page/' + currentBook.id + '/' + (currentPage - 1) + '?v=2';
         }
     }
 
@@ -547,7 +547,7 @@ SPA_HTML = '''<!DOCTYPE html>
                 queueIdx++;
                 setTimeout(processQueue, 35);
             };
-            temp.src = '/page/' + item.id + '/' + item.page;
+            temp.src = '/page/' + item.id + '/' + item.page + '?v=2';
         }
 
         processQueue();
@@ -701,7 +701,7 @@ def offline_manifest():
     ]
     for b in books:
         for p in range(1, b["page_count"] + 1):
-            lines.append(f'/page/{b["id"]}/{p}')
+            lines.append(f'/page/{b["id"]}/{p}?v=2')
     lines.append('NETWORK:')
     lines.append('*')
 
