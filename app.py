@@ -76,12 +76,12 @@ def count_pages(pdf_path):
         app.logger.error(f'Error counting pages: {e}')
         return 1
 
-def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=150, quality=85):
+def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=160, quality=88):
     output_jpg = Path(output_jpg)
     if output_jpg.exists():
         return True
 
-    # Method 1: Native pdftoppm in crisp grayscale at 140 DPI
+    # Method 1: Native pdftoppm in ultra-clear grayscale at 160 DPI
     if shutil.which('pdftoppm'):
         prefix = output_jpg.with_suffix('')
         cmd = [
@@ -350,19 +350,24 @@ SPA_HTML = '''<!DOCTYPE html>
     <div id="readerView">
         <div id="topBar">
             <a href="javascript:void(0)" onclick="closeBook()" class="nav-btn">&larr; Library</a>
-            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #000000; color: #ffffff; border: 1px solid #666666; padding: 4px; font-size: 13px; max-width: 175px; float: left; margin-top: 2px; -webkit-appearance: menulist;">
+            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #000000; color: #ffffff; border: 1px solid #666666; padding: 2px 4px; font-size: 12px; max-width: 135px; float: left; margin-top: 3px; -webkit-appearance: menulist;">
                 {% for b in books %}
                 <option value="{{ b.id }}">{{ b.title }} ({{ b.page_count }}p)</option>
                 {% endfor %}
             </select>
-            <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 10px; font-size: 12px; font-weight: normal; color: #cccccc !important;">Save All</a>
+            <a href="javascript:void(0)" onclick="prevPage()" class="nav-btn" style="margin-left: 6px;">&larr; Prev</a>
+            <a href="javascript:void(0)" onclick="nextPage()" class="nav-btn">Next &rarr;</a>
+            <a href="javascript:void(0)" onclick="window.location.reload(true)" class="nav-btn" style="float: right; margin-left: 8px; margin-right: 0;" title="Refresh">&#8635;</a>
             <span class="page-badge" id="pageDisplay">1 / 1</span>
         </div>
         <div id="cacheStatus"></div>
 
         <div id="pageArea">
             <img id="pageImg" src="" alt="PDF Page">
-            <div id="tapHint">Swipe left: Next &bull; Swipe right: Prev</div>
+            <div style="text-align: center; padding: 18px 0 35px 0;">
+                <button onclick="prevPage()" class="btn btn-light" style="padding: 10px 18px; margin-right: 10px; font-size: 14px;">&larr; Prev Page</button>
+                <button onclick="nextPage()" class="btn" style="padding: 10px 22px; font-size: 14px;">Next Page &rarr;</button>
+            </div>
         </div>
     </div>
 
@@ -421,7 +426,7 @@ SPA_HTML = '''<!DOCTYPE html>
     function renderPage() {
         if (!currentBook) return;
         var img = document.getElementById('pageImg');
-        img.src = '/page/' + currentBook.id + '/' + currentPage + '?v=2';
+        img.src = '/page/' + currentBook.id + '/' + currentPage + '?v=3';
 
         document.getElementById('pageDisplay').innerText = currentPage + ' / ' + currentBook.page_count;
         window.scrollTo(0, 0);
@@ -440,11 +445,11 @@ SPA_HTML = '''<!DOCTYPE html>
 
         if (currentPage < currentBook.page_count) {
             var n = new Image();
-            n.src = '/page/' + currentBook.id + '/' + (currentPage + 1) + '?v=2';
+            n.src = '/page/' + currentBook.id + '/' + (currentPage + 1) + '?v=3';
         }
         if (currentPage > 1) {
             var p = new Image();
-            p.src = '/page/' + currentBook.id + '/' + (currentPage - 1) + '?v=2';
+            p.src = '/page/' + currentBook.id + '/' + (currentPage - 1) + '?v=3';
         }
     }
 
@@ -462,10 +467,9 @@ SPA_HTML = '''<!DOCTYPE html>
         }
     }
 
-    var startX = 0, startY = 0, startTime = 0;
+    var startY = 0, startTime = 0;
     window.addEventListener('touchstart', function(e) {
         if (e.touches && e.touches.length === 1) {
-            startX = e.touches[0].clientX;
             startY = e.touches[0].clientY;
             startTime = new Date().getTime();
         }
@@ -475,24 +479,24 @@ SPA_HTML = '''<!DOCTYPE html>
         if (document.getElementById('readerView').style.display === 'none') return;
         if (!e.changedTouches || e.changedTouches.length !== 1) return;
 
-        var endX = e.changedTouches[0].clientX;
         var endY = e.changedTouches[0].clientY;
-        var diffX = endX - startX;
         var diffY = endY - startY;
-        var absX = Math.abs(diffX);
         var absY = Math.abs(diffY);
         var duration = new Date().getTime() - startTime;
 
-        if (absX >= 35 && absX > absY && duration < 900) {
-            if (diffX < 0) nextPage();
-            else prevPage();
-            return;
-        }
+        // Vertical swipe up at bottom of page to go to next page
+        var scrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+        var windowHeight = window.innerHeight || document.documentElement.clientHeight || 768;
+        var bodyHeight = Math.max(document.body.scrollHeight, document.body.offsetHeight, document.documentElement.scrollHeight);
+        var atBottom = (scrollY + windowHeight) >= (bodyHeight - 60);
+        var atTop = (scrollY <= 20);
 
-        if (absX < 15 && absY < 15 && duration < 350) {
-            var width = window.innerWidth || 1024;
-            if (endX > width * 0.70) nextPage();
-            else if (endX < width * 0.30) prevPage();
+        if (absY >= 70 && duration < 800) {
+            if (diffY < 0 && atBottom) {
+                nextPage();
+            } else if (diffY > 0 && atTop) {
+                prevPage();
+            }
         }
     }, false);
 
@@ -547,7 +551,7 @@ SPA_HTML = '''<!DOCTYPE html>
                 queueIdx++;
                 setTimeout(processQueue, 35);
             };
-            temp.src = '/page/' + item.id + '/' + item.page + '?v=2';
+            temp.src = '/page/' + item.id + '/' + item.page + '?v=3';
         }
 
         processQueue();
@@ -701,7 +705,7 @@ def offline_manifest():
     ]
     for b in books:
         for p in range(1, b["page_count"] + 1):
-            lines.append(f'/page/{b["id"]}/{p}?v=2')
+            lines.append(f'/page/{b["id"]}/{p}?v=3')
     lines.append('NETWORK:')
     lines.append('*')
 
