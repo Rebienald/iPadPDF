@@ -76,19 +76,20 @@ def count_pages(pdf_path):
         app.logger.error(f'Error counting pages: {e}')
         return 1
 
-def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=125, quality=75):
+def render_page_to_jpeg(pdf_path, page_num, output_jpg, max_size=1024, quality=72):
     output_jpg = Path(output_jpg)
     if output_jpg.exists():
         return True
 
-    # Method 1: Try native pdftoppm in true grayscale (fastest & lowest RAM)
+    # Method 1: Native pdftoppm scaled to iPad native resolution (1024px) in true grayscale
     if shutil.which('pdftoppm'):
         prefix = output_jpg.with_suffix('')
         cmd = [
             'pdftoppm',
             '-gray',
             '-jpeg',
-            '-r', str(dpi),
+            '-jpegopt', f'quality={quality}',
+            '-scale-to', str(max_size),
             '-f', str(page_num),
             '-l', str(page_num),
             '-singlefile',
@@ -106,7 +107,8 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=125, quality=75):
             doc.close()
             return False
         page = doc[page_num - 1]
-        scale = dpi / 72.0
+        width, height = page.get_size()
+        scale = min(max_size / float(width), max_size / float(height))
         pil_img = page.render(scale=scale).to_pil().convert('L')
         pil_img.save(str(output_jpg), 'JPEG', quality=quality)
         doc.close()
@@ -258,6 +260,9 @@ SPA_HTML = '''<!DOCTYPE html>
         height: auto;
         background: #ffffff;
         border: 1px solid #333333;
+        -webkit-transform: translateZ(0);
+        transform: translateZ(0);
+        -webkit-backface-visibility: hidden;
     }
     #tapHint {
         font-size: 11px;
