@@ -76,12 +76,12 @@ def count_pages(pdf_path):
         app.logger.error(f'Error counting pages: {e}')
         return 1
 
-def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=150, quality=85):
+def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=140, quality=82):
     output_jpg = Path(output_jpg)
     if output_jpg.exists():
         return True
 
-    # Method 1: Native pdftoppm in crisp grayscale at 150 DPI
+    # Method 1: Native pdftoppm in crisp grayscale at 140 DPI
     if shutil.which('pdftoppm'):
         prefix = output_jpg.with_suffix('')
         cmd = [
@@ -213,8 +213,7 @@ SPA_HTML = '''<!DOCTYPE html>
         color: #ffffff;
         min-height: 100%;
         width: 100%;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+        overflow-x: hidden;
     }
     #topBar {
         position: fixed;
@@ -224,10 +223,9 @@ SPA_HTML = '''<!DOCTYPE html>
         height: 38px;
         background: #000000;
         border-bottom: 1px solid #444444;
-        padding: 5px 8px;
+        padding: 5px 10px;
         z-index: 999;
-        font-size: 13px;
-        white-space: nowrap;
+        font-size: 14px;
     }
     .nav-btn {
         color: #ffffff !important;
@@ -235,26 +233,24 @@ SPA_HTML = '''<!DOCTYPE html>
         font-weight: bold;
         float: left;
         line-height: 28px;
-        font-size: 13px;
-        margin-right: 8px;
+        font-size: 14px;
+        margin-right: 12px;
         cursor: pointer;
     }
     .page-badge {
         float: right;
         color: #ffffff;
-        font-size: 13px;
+        font-size: 14px;
         line-height: 28px;
         font-weight: bold;
-        letter-spacing: 0.5px;
+        letter-spacing: 1px;
     }
     #pageArea {
-        padding-top: 42px;
+        padding-top: 40px;
         text-align: center;
         width: 100%;
         min-height: 100%;
         background-color: #000000;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
     }
     #pageImg {
         display: block;
@@ -263,22 +259,6 @@ SPA_HTML = '''<!DOCTYPE html>
         height: auto;
         background: #ffffff;
         border: 1px solid #333333;
-        -webkit-transform: translateZ(0);
-        transform: translateZ(0);
-        -webkit-backface-visibility: hidden;
-        image-rendering: -webkit-optimize-contrast;
-    }
-    #pageImg.zoom-1 {
-        max-width: 100%;
-        width: auto;
-    }
-    #pageImg.zoom-2 {
-        max-width: none;
-        width: 135%;
-    }
-    #pageImg.zoom-3 {
-        max-width: none;
-        width: 175%;
     }
     #tapHint {
         font-size: 11px;
@@ -370,22 +350,19 @@ SPA_HTML = '''<!DOCTYPE html>
     <div id="readerView">
         <div id="topBar">
             <a href="javascript:void(0)" onclick="closeBook()" class="nav-btn">&larr; Library</a>
-            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #000000; color: #ffffff; border: 1px solid #666666; padding: 2px 4px; font-size: 12px; max-width: 145px; float: left; margin-top: 3px; -webkit-appearance: menulist;">
+            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #000000; color: #ffffff; border: 1px solid #666666; padding: 4px; font-size: 13px; max-width: 175px; float: left; margin-top: 2px; -webkit-appearance: menulist;">
                 {% for b in books %}
                 <option value="{{ b.id }}">{{ b.title }} ({{ b.page_count }}p)</option>
                 {% endfor %}
             </select>
-            <a href="javascript:void(0)" onclick="prevPage()" class="nav-btn" style="margin-left: 8px;">&larr; Prev</a>
-            <a href="javascript:void(0)" onclick="nextPage()" class="nav-btn">Next &rarr;</a>
-            <a href="javascript:void(0)" onclick="toggleZoom()" id="zoomBtn" class="nav-btn" style="border: 1px solid #666666; padding: 0 6px; line-height: 24px; margin-top: 2px;">Zoom: 1x</a>
-            <a href="javascript:void(0)" onclick="window.location.reload(true)" class="nav-btn" style="float: right; margin-left: 8px; margin-right: 0;" title="Refresh">&#8635;</a>
+            <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 10px; font-size: 12px; font-weight: normal; color: #cccccc !important;">Save All</a>
             <span class="page-badge" id="pageDisplay">1 / 1</span>
         </div>
         <div id="cacheStatus"></div>
 
         <div id="pageArea">
-            <img id="pageImg" class="zoom-1" src="" alt="PDF Page">
-            <div id="tapHint">Tap Zoom or double-tap to enlarge &bull; Swipe or Prev/Next to flip</div>
+            <img id="pageImg" src="" alt="PDF Page">
+            <div id="tapHint">Swipe left: Next &bull; Swipe right: Prev</div>
         </div>
     </div>
 
@@ -485,38 +462,6 @@ SPA_HTML = '''<!DOCTYPE html>
         }
     }
 
-    var zoomLevels = ['zoom-1', 'zoom-2', 'zoom-3'];
-    var zoomLabels = ['1x', '1.3x', '1.7x'];
-    var currentZoomIndex = 0;
-
-    function toggleZoom() {
-        currentZoomIndex = (currentZoomIndex + 1) % zoomLevels.length;
-        applyZoom();
-    }
-
-    function applyZoom() {
-        var img = document.getElementById('pageImg');
-        var btn = document.getElementById('zoomBtn');
-        if (img) {
-            img.className = zoomLevels[currentZoomIndex];
-        }
-        if (btn) {
-            btn.innerHTML = 'Zoom: ' + zoomLabels[currentZoomIndex];
-        }
-    }
-
-    var lastTap = 0;
-    var pageImgEl = document.getElementById('pageImg');
-    if (pageImgEl) {
-        pageImgEl.addEventListener('click', function(e) {
-            var now = new Date().getTime();
-            if (now - lastTap < 350) {
-                toggleZoom();
-            }
-            lastTap = now;
-        }, false);
-    }
-
     var startX = 0, startY = 0, startTime = 0;
     window.addEventListener('touchstart', function(e) {
         if (e.touches && e.touches.length === 1) {
@@ -538,15 +483,7 @@ SPA_HTML = '''<!DOCTYPE html>
         var absY = Math.abs(diffY);
         var duration = new Date().getTime() - startTime;
 
-        if (currentZoomIndex > 0) {
-            if (absX >= 180 && absX > absY && duration < 700) {
-                if (diffX < 0) nextPage();
-                else prevPage();
-            }
-            return;
-        }
-
-        if (absX >= 40 && absX > absY && duration < 900) {
+        if (absX >= 35 && absX > absY && duration < 900) {
             if (diffX < 0) nextPage();
             else prevPage();
             return;
@@ -554,8 +491,8 @@ SPA_HTML = '''<!DOCTYPE html>
 
         if (absX < 15 && absY < 15 && duration < 350) {
             var width = window.innerWidth || 1024;
-            if (endX > width * 0.75) nextPage();
-            else if (endX < width * 0.25) prevPage();
+            if (endX > width * 0.70) nextPage();
+            else if (endX < width * 0.30) prevPage();
         }
     }, false);
 
