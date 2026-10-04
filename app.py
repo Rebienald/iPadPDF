@@ -111,10 +111,13 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=130, quality=78):
         return False
 
 INDEX_HTML = '''<!DOCTYPE html>
-<html>
+<html manifest="/offline.appcache">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="apple-touch-icon" href="/icon.png">
     <title>iPad PDF Library</title>
     <style>
     body {
@@ -256,10 +259,13 @@ INDEX_HTML = '''<!DOCTYPE html>
 </html>'''
 
 SWIPE_READER_HTML = '''<!DOCTYPE html>
-<html>
+<html manifest="/offline.appcache">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="/icon.png">
     <title>{{ book.title }}</title>
     <style>
     * {
@@ -680,6 +686,39 @@ def delete_book(book_id):
             conn.execute('DELETE FROM books WHERE id = ?', (book_id,))
     conn.close()
     return redirect(url_for('index'))
+
+@app.route('/offline.appcache')
+def offline_manifest():
+    conn = get_db()
+    books = conn.execute('SELECT id, page_count FROM books').fetchall()
+    conn.close()
+
+    version = int(time.time() // 60)
+    lines = [
+        'CACHE MANIFEST',
+        f'# Version {version}',
+        'CACHE:',
+        '/',
+        '/icon.png'
+    ]
+    for b in books:
+        lines.append(f'/read/{b["id"]}')
+        for p in range(1, b["page_count"] + 1):
+            lines.append(f'/page/{b["id"]}/{p}')
+    lines.append('NETWORK:')
+    lines.append('*')
+
+    response = app.response_class('\n'.join(lines), mimetype='text/cache-manifest')
+    response.headers['Cache-Control'] = 'no-cache'
+    return response
+
+@app.route('/icon.png')
+@app.route('/apple-touch-icon.png')
+def app_icon():
+    icon_path = BASE_DIR / 'static' / 'icon.png'
+    if icon_path.exists():
+        return send_file(icon_path, mimetype='image/png')
+    abort(404)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
