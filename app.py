@@ -292,8 +292,9 @@ SPA_HTML = '''<!DOCTYPE html>
 
     <!-- ==================== 1. MONOCHROME LIBRARY VIEW ==================== -->
     <div id="libraryView">
-        <div class="box">
-            <div class="box-title">iPad PDF Library</div>
+        <div class="box" style="overflow: hidden;">
+            <button onclick="window.location.reload(true)" class="btn" style="float: right; margin-left: 10px; padding: 8px 18px; font-size: 14px; font-weight: bold; cursor: pointer;">&#8635; Refresh</button>
+            <div class="box-title" style="margin-top: 2px;">iPad PDF Library</div>
             <div>Address: <strong>http://{{ local_ip }}:{{ port }}</strong></div>
         </div>
 
@@ -360,6 +361,7 @@ SPA_HTML = '''<!DOCTYPE html>
                 {% endfor %}
             </select>
             <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 10px; font-size: 12px; font-weight: normal; color: #cccccc !important;">Save All</a>
+            <a href="javascript:void(0)" onclick="window.location.reload(true)" class="nav-btn" style="float: right; margin-left: 10px; margin-right: 0;">&#8635; Refresh</a>
             <span class="page-badge" id="pageDisplay">1 / 1</span>
         </div>
         <div id="cacheStatus"></div>
