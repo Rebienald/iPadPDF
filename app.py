@@ -17,6 +17,7 @@ import sqlite3
 import subprocess
 import shutil
 import json
+import gzip
 from pathlib import Path
 from flask import Flask, request, redirect, url_for, send_file, render_template_string, abort
 import pypdfium2 as pdfium
@@ -32,6 +33,25 @@ for d in (UPLOADS_DIR, CACHE_DIR, DATA_DIR):
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 250 * 1024 * 1024  # 250 MB max PDF upload
+
+@app.after_request
+def compress_response(response):
+    accept_encoding = request.headers.get('Accept-Encoding', '')
+    if 'gzip' not in accept_encoding.lower():
+        return response
+    if response.status_code < 200 or response.status_code >= 300:
+        return response
+    if 'Content-Encoding' in response.headers:
+        return response
+    content_type = response.headers.get('Content-Type', '')
+    if any(t in content_type for t in ['text/html', 'application/json', 'text/css', 'application/javascript']):
+        data = response.get_data()
+        if len(data) > 200:
+            compressed = gzip.compress(data, compresslevel=6)
+            response.set_data(compressed)
+            response.headers['Content-Encoding'] = 'gzip'
+            response.headers['Content-Length'] = len(compressed)
+    return response
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -408,10 +428,18 @@ SPA_HTML = '''<!DOCTYPE html>
         renderPage();
     }
 
+    var activePreload = null;
+
     function closeBook() {
         try {
             localStorage.removeItem('ipad_active_book');
         } catch(e) {}
+        if (activePreload) {
+            activePreload.onload = null;
+            activePreload.onerror = null;
+            activePreload.src = '';
+            activePreload = null;
+        }
         document.getElementById('readerView').style.display = 'none';
         document.getElementById('libraryView').style.display = 'block';
         window.scrollTo(0, 0);
@@ -437,13 +465,16 @@ SPA_HTML = '''<!DOCTYPE html>
         var ping = new Image();
         ping.src = '/bookmark/' + currentBook.id + '/' + currentPage;
 
-        if (currentPage < currentBook.page_count) {
-            var n = new Image();
-            n.src = '/page/' + currentBook.id + '/' + (currentPage + 1) + '?v=3';
+        if (activePreload) {
+            activePreload.onload = null;
+            activePreload.onerror = null;
+            activePreload.src = '';
+            activePreload = null;
         }
-        if (currentPage > 1) {
-            var p = new Image();
-            p.src = '/page/' + currentBook.id + '/' + (currentPage - 1) + '?v=3';
+
+        if (currentPage < currentBook.page_count) {
+            activePreload = new Image();
+            activePreload.src = '/page/' + currentBook.id + '/' + (currentPage + 1) + '?v=3';
         }
     }
 
@@ -483,6 +514,7 @@ SPA_HTML = '''<!DOCTYPE html>
         var duration = new Date().getTime() - startTime;
 
         if (absX >= 35 && absX > absY && duration < 900) {
+            if (e.cancelable) e.preventDefault();
             if (diffX < 0) nextPage();
             else prevPage();
             return;
@@ -490,8 +522,13 @@ SPA_HTML = '''<!DOCTYPE html>
 
         if (absX < 15 && absY < 15 && duration < 350) {
             var width = window.innerWidth || 1024;
-            if (endX > width * 0.70) nextPage();
-            else if (endX < width * 0.30) prevPage();
+            if (endX > width * 0.70) {
+                if (e.cancelable) e.preventDefault();
+                nextPage();
+            } else if (endX < width * 0.30) {
+                if (e.cancelable) e.preventDefault();
+                prevPage();
+            }
         }
     }, false);
 
