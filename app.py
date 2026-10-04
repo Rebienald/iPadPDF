@@ -287,9 +287,8 @@ SPA_HTML = '''<!DOCTYPE html>
 
     <!-- ==================== 1. MONOCHROME LIBRARY VIEW ==================== -->
     <div id="libraryView">
-        <div class="box" style="overflow: hidden;">
-            <button onclick="window.location.reload(true)" class="btn" style="float: right; margin-left: 10px; padding: 8px 18px; font-size: 14px; font-weight: bold; cursor: pointer;">&#8635; Refresh</button>
-            <div class="box-title" style="margin-top: 2px;">iPad PDF Library</div>
+        <div class="box">
+            <div class="box-title">iPad PDF Library</div>
             <div>Address: <strong>http://{{ local_ip }}:{{ port }}</strong></div>
         </div>
 
@@ -350,24 +349,19 @@ SPA_HTML = '''<!DOCTYPE html>
     <div id="readerView">
         <div id="topBar">
             <a href="javascript:void(0)" onclick="closeBook()" class="nav-btn">&larr; Library</a>
-            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #000000; color: #ffffff; border: 1px solid #666666; padding: 2px 4px; font-size: 12px; max-width: 135px; float: left; margin-top: 3px; -webkit-appearance: menulist;">
+            <select id="readerBookSelect" onchange="openBook(this.value)" style="background: #000000; color: #ffffff; border: 1px solid #666666; padding: 4px; font-size: 13px; max-width: 175px; float: left; margin-top: 2px; -webkit-appearance: menulist;">
                 {% for b in books %}
                 <option value="{{ b.id }}">{{ b.title }} ({{ b.page_count }}p)</option>
                 {% endfor %}
             </select>
-            <a href="javascript:void(0)" onclick="prevPage()" class="nav-btn" style="margin-left: 6px;">&larr; Prev</a>
-            <a href="javascript:void(0)" onclick="nextPage()" class="nav-btn">Next &rarr;</a>
-            <a href="javascript:void(0)" onclick="window.location.reload(true)" class="nav-btn" style="float: right; margin-left: 8px; margin-right: 0;" title="Refresh">&#8635;</a>
+            <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 10px; font-size: 12px; font-weight: normal; color: #cccccc !important;">Save All</a>
             <span class="page-badge" id="pageDisplay">1 / 1</span>
         </div>
         <div id="cacheStatus"></div>
 
         <div id="pageArea">
             <img id="pageImg" src="" alt="PDF Page">
-            <div style="text-align: center; padding: 18px 0 35px 0;">
-                <button onclick="prevPage()" class="btn btn-light" style="padding: 10px 18px; margin-right: 10px; font-size: 14px;">&larr; Prev Page</button>
-                <button onclick="nextPage()" class="btn" style="padding: 10px 22px; font-size: 14px;">Next Page &rarr;</button>
-            </div>
+            <div id="tapHint">Swipe left: Next &bull; Swipe right: Prev</div>
         </div>
     </div>
 
@@ -467,9 +461,10 @@ SPA_HTML = '''<!DOCTYPE html>
         }
     }
 
-    var startY = 0, startTime = 0;
+    var startX = 0, startY = 0, startTime = 0;
     window.addEventListener('touchstart', function(e) {
         if (e.touches && e.touches.length === 1) {
+            startX = e.touches[0].clientX;
             startY = e.touches[0].clientY;
             startTime = new Date().getTime();
         }
@@ -479,24 +474,24 @@ SPA_HTML = '''<!DOCTYPE html>
         if (document.getElementById('readerView').style.display === 'none') return;
         if (!e.changedTouches || e.changedTouches.length !== 1) return;
 
+        var endX = e.changedTouches[0].clientX;
         var endY = e.changedTouches[0].clientY;
+        var diffX = endX - startX;
         var diffY = endY - startY;
+        var absX = Math.abs(diffX);
         var absY = Math.abs(diffY);
         var duration = new Date().getTime() - startTime;
 
-        // Vertical swipe up at bottom of page to go to next page
-        var scrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
-        var windowHeight = window.innerHeight || document.documentElement.clientHeight || 768;
-        var bodyHeight = Math.max(document.body.scrollHeight, document.body.offsetHeight, document.documentElement.scrollHeight);
-        var atBottom = (scrollY + windowHeight) >= (bodyHeight - 60);
-        var atTop = (scrollY <= 20);
+        if (absX >= 35 && absX > absY && duration < 900) {
+            if (diffX < 0) nextPage();
+            else prevPage();
+            return;
+        }
 
-        if (absY >= 70 && duration < 800) {
-            if (diffY < 0 && atBottom) {
-                nextPage();
-            } else if (diffY > 0 && atTop) {
-                prevPage();
-            }
+        if (absX < 15 && absY < 15 && duration < 350) {
+            var width = window.innerWidth || 1024;
+            if (endX > width * 0.70) nextPage();
+            else if (endX < width * 0.30) prevPage();
         }
     }, false);
 
