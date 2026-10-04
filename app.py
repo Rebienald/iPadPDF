@@ -273,25 +273,23 @@ SPA_HTML = '''<!DOCTYPE html>
     }
     #pageArea {
         padding-top: 48px;
+        padding-bottom: 30px;
         text-align: center;
         width: 100%;
-        min-height: 100%;
         background-color: #000000;
     }
-    #pageImg {
+    .pdf-page-container {
+        text-align: center;
+        margin: 0 auto 14px auto;
+        background: #000000;
+    }
+    .pdf-page {
         display: block;
         margin: 0 auto;
         max-width: 100%;
         height: auto;
         background: #ffffff;
         border: 1px solid #333333;
-    }
-    #tapHint {
-        font-size: 11px;
-        color: #666666;
-        text-align: center;
-        padding: 6px 0;
-        text-transform: uppercase;
     }
     #cacheStatus {
         display: none;
@@ -385,10 +383,7 @@ SPA_HTML = '''<!DOCTYPE html>
         </div>
         <div id="cacheStatus"></div>
 
-        <div id="pageArea">
-            <img id="pageImg" src="" alt="PDF Page">
-            <div id="tapHint">Swipe left: Next &bull; Swipe right: Prev</div>
-        </div>
+        <div id="pageArea"></div>
     </div>
 
 
@@ -410,151 +405,115 @@ SPA_HTML = '''<!DOCTYPE html>
         if (!b) return;
         currentBook = b;
 
+        var targetPage = 1;
         if (page) {
-            currentPage = page;
+            targetPage = page;
         } else {
             try {
                 var saved = localStorage.getItem('page_' + b.id);
-                currentPage = saved ? parseInt(saved, 10) : (b.current_page || 1);
+                targetPage = saved ? parseInt(saved, 10) : (b.current_page || 1);
             } catch(e) {
-                currentPage = b.current_page || 1;
+                targetPage = b.current_page || 1;
             }
         }
-        currentPage = Math.max(1, Math.min(currentPage, b.page_count));
+        targetPage = Math.max(1, Math.min(targetPage, b.page_count));
 
         try {
             localStorage.setItem('ipad_active_book', b.id);
-            localStorage.setItem('page_' + b.id, currentPage);
+            localStorage.setItem('page_' + b.id, targetPage);
         } catch(e) {}
 
         document.getElementById('libraryView').style.display = 'none';
         document.getElementById('readerView').style.display = 'block';
         document.getElementById('readerBookSelect').value = b.id;
 
-        renderPage();
+        renderContinuousPages(targetPage);
     }
-
-    var activePreload = null;
 
     function closeBook() {
         try {
             localStorage.removeItem('ipad_active_book');
         } catch(e) {}
-        if (activePreload) {
-            activePreload.onload = null;
-            activePreload.onerror = null;
-            activePreload.src = '';
-            activePreload = null;
-        }
+        document.getElementById('pageArea').innerHTML = '';
         document.getElementById('readerView').style.display = 'none';
         document.getElementById('libraryView').style.display = 'block';
         window.scrollTo(0, 0);
     }
 
-    function renderPage() {
+    function renderContinuousPages(targetPage) {
         if (!currentBook) return;
-        var img = document.getElementById('pageImg');
-        img.src = '/page/' + currentBook.id + '/' + currentPage + '?v=3';
+        var container = document.getElementById('pageArea');
+        container.innerHTML = '';
 
-        document.getElementById('pageDisplay').innerText = currentPage + ' / ' + currentBook.page_count;
-        window.scrollTo(0, 0);
+        for (var p = 1; p <= currentBook.page_count; p++) {
+            var wrap = document.createElement('div');
+            wrap.className = 'pdf-page-container';
+            wrap.id = 'pageWrap_' + p;
 
-        try {
-            localStorage.setItem('page_' + currentBook.id, currentPage);
-        } catch(e) {}
+            var img = document.createElement('img');
+            img.className = 'pdf-page';
+            img.id = 'pageImg_' + p;
+            img.alt = 'Page ' + p;
+            img.src = '/page/' + currentBook.id + '/' + p + '?v=3';
 
+            wrap.appendChild(img);
+            container.appendChild(wrap);
+        }
+
+        updatePageDisplay(targetPage || 1);
+
+        if (targetPage && targetPage > 1) {
+            setTimeout(function() {
+                var el = document.getElementById('pageWrap_' + targetPage);
+                if (el) {
+                    var topPos = Math.max(0, el.offsetTop - 50);
+                    window.scrollTo(0, topPos);
+                }
+            }, 60);
+        } else {
+            window.scrollTo(0, 0);
+        }
+    }
+
+    function updatePageDisplay(p) {
+        if (!currentBook) return;
+        document.getElementById('pageDisplay').innerText = p + ' / ' + currentBook.page_count;
         var progEl = document.getElementById('progress_' + currentBook.id);
         if (progEl) {
-            progEl.innerText = 'Page ' + currentPage + ' of ' + currentBook.page_count;
+            progEl.innerText = 'Page ' + p + ' of ' + currentBook.page_count;
         }
-
-        var ping = new Image();
-        ping.src = '/bookmark/' + currentBook.id + '/' + currentPage;
-
-        if (activePreload) {
-            activePreload.onload = null;
-            activePreload.onerror = null;
-            activePreload.src = '';
-            activePreload = null;
-        }
-
-        if (currentPage < currentBook.page_count) {
-            activePreload = new Image();
-            activePreload.src = '/page/' + currentBook.id + '/' + (currentPage + 1) + '?v=3';
-        }
+        try {
+            localStorage.setItem('page_' + currentBook.id, p);
+        } catch(e) {}
     }
 
-    var lastNavTime = 0;
-    function nextPage() {
-        var now = new Date().getTime();
-        if (now - lastNavTime < 350) return;
-        if (currentBook && currentPage < currentBook.page_count) {
-            lastNavTime = now;
-            currentPage++;
-            renderPage();
-        }
-    }
-
-    function prevPage() {
-        var now = new Date().getTime();
-        if (now - lastNavTime < 350) return;
-        if (currentBook && currentPage > 1) {
-            lastNavTime = now;
-            currentPage--;
-            renderPage();
-        }
-    }
-
-    function isInteractive(el) {
-        while (el && el !== document.body && el !== document) {
-            if (el.id === 'topBar' || el.tagName === 'A' || el.tagName === 'SELECT' || el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'OPTION') {
-                return true;
+    var scrollTimer = null;
+    window.addEventListener('scroll', function() {
+        if (document.getElementById('readerView').style.display === 'none' || !currentBook) return;
+        if (scrollTimer) return;
+        scrollTimer = setTimeout(function() {
+            scrollTimer = null;
+            var wraps = document.getElementsByClassName('pdf-page-container');
+            var scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+            var mid = scrollY + (window.innerHeight || 768) * 0.4;
+            for (var i = 0; i < wraps.length; i++) {
+                var top = wraps[i].offsetTop;
+                var bottom = top + wraps[i].offsetHeight;
+                if (top <= mid && bottom >= mid) {
+                    var p = i + 1;
+                    updatePageDisplay(p);
+                    var ping = new Image();
+                    ping.src = '/bookmark/' + currentBook.id + '/' + p;
+                    break;
+                }
             }
-            el = el.parentNode;
-        }
-        return false;
-    }
-
-    var startX = 0, startY = 0, startTime = 0;
-    window.addEventListener('touchstart', function(e) {
-        if (e.touches && e.touches.length === 1) {
-            startX = e.touches[0].clientX;
-            startY = e.touches[0].clientY;
-            startTime = new Date().getTime();
-        }
-    }, false);
-
-    window.addEventListener('touchend', function(e) {
-        if (document.getElementById('readerView').style.display === 'none') return;
-        if (!e.changedTouches || e.changedTouches.length !== 1) return;
-
-        if (startY <= 55 || isInteractive(e.target)) return;
-
-        var endX = e.changedTouches[0].clientX;
-        var endY = e.changedTouches[0].clientY;
-        if (endY <= 55) return;
-
-        var diffX = endX - startX;
-        var diffY = endY - startY;
-        var absX = Math.abs(diffX);
-        var absY = Math.abs(diffY);
-        var duration = new Date().getTime() - startTime;
-
-        // Clean, intentional horizontal swipe only
-        if (absX >= 50 && absX > (absY * 1.5) && duration >= 50 && duration < 900) {
-            if (e.cancelable) e.preventDefault();
-            if (diffX < 0) {
-                nextPage();
-            } else {
-                prevPage();
-            }
-        }
+        }, 120);
     }, false);
 
     document.addEventListener('keydown', function(e) {
         if (document.getElementById('readerView').style.display === 'none') return;
-        if (e.keyCode === 37) prevPage();
-        else if (e.keyCode === 39 || e.keyCode === 32) nextPage();
+        if (e.keyCode === 38 || e.keyCode === 37) window.scrollBy(0, -200);
+        else if (e.keyCode === 40 || e.keyCode === 39 || e.keyCode === 32) window.scrollBy(0, 200);
     }, false);
 
     var isCaching = false;
