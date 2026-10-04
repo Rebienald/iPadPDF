@@ -2,6 +2,7 @@
 """
 iPadPDF - Ultra-Lightweight PDF Reader & Library for iPad 1st Gen (iOS 5)
 Server-side rasterization to lightweight JPEGs for 256MB RAM devices.
+Supports instant touch swipe navigation (swipe left/right) with zero clutter.
 """
 
 import os
@@ -70,7 +71,7 @@ def count_pages(pdf_path):
         app.logger.error(f'Error counting pages: {e}')
         return 1
 
-def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=140, quality=80):
+def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=130, quality=78):
     output_jpg = Path(output_jpg)
     if output_jpg.exists():
         return True
@@ -108,156 +109,116 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=140, quality=80):
         app.logger.error(f'Failed rendering page {page_num}: {e}')
         return False
 
-# Base CSS designed for iOS 5 Mobile Safari and ultra-minimalist speed
-COMMON_CSS = '''
-body {
-    background-color: #f7f7f7;
-    color: #222222;
-    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
-    margin: 0;
-    padding: 12px;
-    font-size: 16px;
-    line-height: 1.4;
-}
-a {
-    color: #0066cc;
-    text-decoration: none;
-}
-.header {
-    background: #ffffff;
-    border: 1px solid #d0d0d0;
-    padding: 14px 16px;
-    margin-bottom: 14px;
-    border-radius: 4px;
-}
-.header h1 {
-    margin: 0 0 6px 0;
-    font-size: 22px;
-}
-.ip-banner {
-    background: #eef7ff;
-    border: 1px solid #b8daff;
-    padding: 10px 14px;
-    margin-bottom: 14px;
-    border-radius: 4px;
-    font-size: 15px;
-}
-.ip-banner strong {
-    color: #004085;
-}
-.card {
-    background: #ffffff;
-    border: 1px solid #d0d0d0;
-    padding: 14px;
-    margin-bottom: 14px;
-    border-radius: 4px;
-}
-.btn {
-    display: inline-block;
-    background: #007aff;
-    color: #ffffff !important;
-    padding: 10px 16px;
-    border: 1px solid #0056b3;
-    border-radius: 4px;
-    font-size: 16px;
-    font-weight: bold;
-    cursor: pointer;
-    text-align: center;
-    -webkit-appearance: none;
-}
-.btn-secondary {
-    background: #6c757d;
-    border-color: #545b62;
-}
-.btn-danger {
-    background: #dc3545;
-    border-color: #bd2130;
-    padding: 6px 10px;
-    font-size: 13px;
-}
-.btn-nav {
-    padding: 14px 20px;
-    font-size: 18px;
-    min-width: 90px;
-}
-.book-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
-}
-.book-table th, .book-table td {
-    padding: 10px 8px;
-    border-bottom: 1px solid #e0e0e0;
-    text-align: left;
-    vertical-align: middle;
-}
-.book-table th {
-    background: #f0f0f0;
-    font-size: 14px;
-}
-.nav-bar {
-    background: #ffffff;
-    border: 1px solid #d0d0d0;
-    padding: 10px 14px;
-    margin-bottom: 10px;
-    border-radius: 4px;
-    text-align: center;
-}
-.page-container {
-    text-align: center;
-    background: #e8e8e8;
-    padding: 8px 0;
-    border: 1px solid #cccccc;
-    margin: 10px 0;
-    border-radius: 4px;
-}
-.page-img {
-    max-width: 100%;
-    height: auto;
-    background: #ffffff;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
-    display: block;
-    margin: 0 auto;
-}
-input[type="number"], input[type="text"], input[type="file"] {
-    font-size: 16px;
-    padding: 8px;
-    border: 1px solid #cccccc;
-    border-radius: 4px;
-    -webkit-appearance: none;
-}
-'''
-
 INDEX_HTML = '''<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>iPad PDF Library</title>
-    <style>''' + COMMON_CSS + '''</style>
+    <style>
+    body {
+        background-color: #f7f7f7;
+        color: #222222;
+        font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+        margin: 0;
+        padding: 12px;
+        font-size: 16px;
+        line-height: 1.4;
+    }
+    a {
+        color: #0066cc;
+        text-decoration: none;
+    }
+    .header {
+        background: #ffffff;
+        border: 1px solid #d0d0d0;
+        padding: 14px 16px;
+        margin-bottom: 14px;
+        border-radius: 4px;
+    }
+    .header h1 {
+        margin: 0 0 6px 0;
+        font-size: 22px;
+    }
+    .ip-banner {
+        background: #eef7ff;
+        border: 1px solid #b8daff;
+        padding: 10px 14px;
+        margin-bottom: 14px;
+        border-radius: 4px;
+        font-size: 15px;
+    }
+    .card {
+        background: #ffffff;
+        border: 1px solid #d0d0d0;
+        padding: 14px;
+        margin-bottom: 14px;
+        border-radius: 4px;
+    }
+    .btn {
+        display: inline-block;
+        background: #007aff;
+        color: #ffffff !important;
+        padding: 10px 18px;
+        border: 1px solid #0056b3;
+        border-radius: 4px;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        text-align: center;
+        -webkit-appearance: none;
+    }
+    .btn-danger {
+        background: #dc3545;
+        border-color: #bd2130;
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+    .book-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
+    .book-table th, .book-table td {
+        padding: 12px 8px;
+        border-bottom: 1px solid #e0e0e0;
+        text-align: left;
+        vertical-align: middle;
+    }
+    .book-table th {
+        background: #f0f0f0;
+        font-size: 14px;
+    }
+    input[type="file"] {
+        font-size: 16px;
+        padding: 8px;
+        margin-bottom: 12px;
+        display: block;
+    }
+    </style>
 </head>
 <body>
 
     <div class="header">
         <h1>iPad PDF Library</h1>
-        <div>Fast, ultra-lightweight PDF reader for Gen 1 iPad & any device.</div>
+        <div>Minimalist PDF Reader for Gen 1 iPad. Swipe left/right to turn pages.</div>
     </div>
 
     <div class="ip-banner">
-        <strong>iPad Access Address:</strong> Open Safari on your iPad and go to:<br>
-        <span style="font-size: 18px; font-weight: bold; color: #0056b3;">http://{{ local_ip }}:{{ port }}</span>
+        <strong>Open Safari on your iPad and go to:</strong><br>
+        <span style="font-size: 20px; font-weight: bold; color: #0056b3;">http://{{ local_ip }}:{{ port }}</span>
     </div>
 
     <div class="card">
         <h2 style="margin-top: 0; font-size: 18px;">Upload New PDF</h2>
         <form action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" name="pdf_file" accept=".pdf,application/pdf" required style="margin-bottom: 10px; display: block;">
+            <input type="file" name="pdf_file" accept=".pdf,application/pdf" required>
             <input type="submit" value="Upload PDF" class="btn">
         </form>
     </div>
 
     <div class="card">
-        <h2 style="margin-top: 0; font-size: 18px;">Library ({{ books|length }} documents)</h2>
+        <h2 style="margin-top: 0; font-size: 18px;">My Documents ({{ books|length }})</h2>
         {% if books %}
         <table class="book-table">
             <thead>
@@ -271,13 +232,13 @@ INDEX_HTML = '''<!DOCTYPE html>
                 {% for b in books %}
                 <tr>
                     <td>
-                        <strong><a href="/read/{{ b.id }}?page={{ b.current_page }}">{{ b.title }}</a></strong>
-                        <div style="font-size: 12px; color: #666;">Last read: Page {{ b.current_page }} of {{ b.page_count }}</div>
+                        <strong><a href="/read/{{ b.id }}">{{ b.title }}</a></strong>
+                        <div style="font-size: 13px; color: #666;">Reading: Page {{ b.current_page }} of {{ b.page_count }}</div>
                     </td>
                     <td>{{ b.page_count }}</td>
                     <td>
-                        <a href="/read/{{ b.id }}?page={{ b.current_page }}" class="btn" style="padding: 6px 12px; font-size: 14px;">Read</a>
-                        <form action="/delete/{{ b.id }}" method="post" style="display: inline;" onsubmit="return confirm('Delete this PDF?');">
+                        <a href="/read/{{ b.id }}" class="btn" style="padding: 8px 16px;">Open</a>
+                        <form action="/delete/{{ b.id }}" method="post" style="display: inline; margin-left: 6px;" onsubmit="return confirm('Delete this PDF?');">
                             <input type="submit" value="Delete" class="btn btn-danger">
                         </form>
                     </td>
@@ -286,100 +247,215 @@ INDEX_HTML = '''<!DOCTYPE html>
             </tbody>
         </table>
         {% else %}
-        <p style="color: #666;">No PDFs uploaded yet. Upload one above from your phone or laptop!</p>
+        <p style="color: #666;">No PDFs uploaded yet. Upload one above from any phone or laptop!</p>
         {% endif %}
     </div>
 
 </body>
 </html>'''
 
-READER_HTML = '''<!DOCTYPE html>
+SWIPE_READER_HTML = '''<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
-    <title>{{ book.title }} - Page {{ current_page }}/{{ book.page_count }}</title>
-    <style>''' + COMMON_CSS + '''
-    .zoom-100 { max-width: 100%; }
-    .zoom-125 { width: 125%; max-width: none; }
-    .zoom-150 { width: 150%; max-width: none; }
+    <title>{{ book.title }}</title>
+    <style>
+    * {
+        -webkit-box-sizing: border-box;
+        box-sizing: border-box;
+    }
+    body, html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        min-height: 100%;
+        background-color: #1e1e1e;
+        color: #ffffff;
+        font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+        overflow-x: hidden;
+    }
+    #topBar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 38px;
+        background: rgba(0, 0, 0, 0.85);
+        border-bottom: 1px solid #333333;
+        padding: 6px 14px;
+        z-index: 999;
+        font-size: 15px;
+    }
+    .nav-link {
+        color: #5ac8fa !important;
+        text-decoration: none;
+        font-weight: bold;
+        float: left;
+        line-height: 26px;
+        font-size: 15px;
+    }
+    .page-badge {
+        float: right;
+        color: #cccccc;
+        font-size: 14px;
+        line-height: 26px;
+    }
+    .book-title {
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 55%;
+        margin: 0 auto;
+        color: #ffffff;
+        font-size: 14px;
+        line-height: 26px;
+    }
+    #pageArea {
+        padding-top: 38px;
+        text-align: center;
+        width: 100%;
+        min-height: 100%;
+    }
+    #pageImg {
+        display: block;
+        margin: 0 auto;
+        max-width: 100%;
+        height: auto;
+        background: #ffffff;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+    }
+    #tapHint {
+        font-size: 12px;
+        color: #777777;
+        text-align: center;
+        padding: 8px 0;
+    }
     </style>
 </head>
 <body>
 
-    <div class="nav-bar">
-        <div style="float: left;">
-            <a href="/" class="btn btn-secondary" style="padding: 8px 12px; font-size: 14px;">&larr; Library</a>
-        </div>
-        <div style="float: right;">
-            <span style="font-size: 13px; color: #555;">Zoom:</span>
-            <a href="/read/{{ book.id }}?page={{ current_page }}&zoom=100" style="padding: 4px 6px;">1x</a>
-            <a href="/read/{{ book.id }}?page={{ current_page }}&zoom=125" style="padding: 4px 6px;">1.2x</a>
-            <a href="/read/{{ book.id }}?page={{ current_page }}&zoom=150" style="padding: 4px 6px;">1.5x</a>
-        </div>
-        <div style="clear: both; margin-bottom: 8px;"></div>
-        
-        <strong style="font-size: 17px;">{{ book.title }}</strong>
-        <div style="margin: 8px 0;">
-            {% if prev_page %}
-            <a href="/read/{{ book.id }}?page={{ prev_page }}&zoom={{ zoom }}" class="btn btn-nav">&larr; Prev</a>
-            {% else %}
-            <span class="btn btn-nav btn-secondary" style="opacity: 0.5;">&larr; Prev</span>
-            {% endif %}
-
-            <span style="font-size: 18px; font-weight: bold; margin: 0 10px;">{{ current_page }} / {{ book.page_count }}</span>
-
-            {% if next_page %}
-            <a href="/read/{{ book.id }}?page={{ next_page }}&zoom={{ zoom }}" class="btn btn-nav">Next &rarr;</a>
-            {% else %}
-            <span class="btn btn-nav btn-secondary" style="opacity: 0.5;">Next &rarr;</span>
-            {% endif %}
-        </div>
-
-        <form action="/read/{{ book.id }}" method="get" style="margin-top: 6px;">
-            <input type="hidden" name="zoom" value="{{ zoom }}">
-            Jump to page: 
-            <input type="number" name="page" min="1" max="{{ book.page_count }}" value="{{ current_page }}" style="width: 60px; text-align: center;">
-            <input type="submit" value="Go" class="btn" style="padding: 6px 12px; font-size: 14px;">
-        </form>
+    <!-- Minimal top header -->
+    <div id="topBar">
+        <a href="/" class="nav-link">&larr; Library</a>
+        <span class="page-badge" id="pageDisplay">{{ current_page }} / {{ book.page_count }}</span>
+        <div class="book-title">{{ book.title }}</div>
     </div>
 
-    <!-- The Page Image Container -->
-    <div class="page-container">
-        {% if next_page %}
-        <a href="/read/{{ book.id }}?page={{ next_page }}&zoom={{ zoom }}" title="Tap to flip to next page">
-            <img src="/page/{{ book.id }}/{{ current_page }}" class="page-img zoom-{{ zoom }}" alt="Page {{ current_page }}">
-        </a>
-        {% else %}
-        <img src="/page/{{ book.id }}/{{ current_page }}" class="page-img zoom-{{ zoom }}" alt="Page {{ current_page }}">
-        {% endif %}
+    <!-- The PDF Page Container -->
+    <div id="pageArea">
+        <img id="pageImg" src="/page/{{ book.id }}/{{ current_page }}" alt="PDF Page">
+        <div id="tapHint">Swipe left for Next &bull; Swipe right for Prev</div>
     </div>
 
-    <!-- Bottom Navigation Bar (No need to scroll back up on iPad!) -->
-    <div class="nav-bar">
-        {% if prev_page %}
-        <a href="/read/{{ book.id }}?page={{ prev_page }}&zoom={{ zoom }}" class="btn btn-nav">&larr; Prev</a>
-        {% endif %}
-        
-        <span style="font-size: 18px; font-weight: bold; margin: 0 10px;">Page {{ current_page }} of {{ book.page_count }}</span>
-        
-        {% if next_page %}
-        <a href="/read/{{ book.id }}?page={{ next_page }}&zoom={{ zoom }}" class="btn btn-nav">Next &rarr;</a>
-        {% endif %}
-        <div style="margin-top: 10px;">
-            <a href="/" class="btn btn-secondary" style="padding: 8px 14px;">&larr; Back to Library</a>
-        </div>
-    </div>
-
-    <!-- Optional Keyboard Shortcuts for iPad external keyboard / PC -->
+    <!-- Ultra-lightweight ES5 Touch/Swipe & Tap handler for iOS 5 Safari -->
     <script>
+    var bookId = {{ book.id }};
+    var currentPage = {{ current_page }};
+    var totalPages = {{ book.page_count }};
+
+    var startX = 0;
+    var startY = 0;
+    var startTime = 0;
+
+    function preload(p) {
+        if (p >= 1 && p <= totalPages) {
+            var img = new Image();
+            img.src = '/page/' + bookId + '/' + p;
+        }
+    }
+
+    function goToPage(p) {
+        if (p < 1 || p > totalPages) {
+            return;
+        }
+        currentPage = p;
+
+        // Instant image swap without reloading webpage
+        var img = document.getElementById('pageImg');
+        if (img) {
+            img.src = '/page/' + bookId + '/' + p;
+        }
+
+        // Update page indicator badge
+        var display = document.getElementById('pageDisplay');
+        if (display) {
+            display.innerText = p + ' / ' + totalPages;
+        }
+
+        // Scroll back to top smoothly for next page
+        window.scrollTo(0, 0);
+
+        // Preload next and previous pages for instant response
+        preload(p + 1);
+        preload(p - 1);
+
+        // Update server reading progress silently
+        var ping = new Image();
+        ping.src = '/bookmark/' + bookId + '/' + p;
+
+        // Update browser URL silently if history API supported
+        if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', '/read/' + bookId + '?page=' + p);
+        }
+    }
+
+    // Touch event listeners for iOS 5 Safari
+    window.addEventListener('touchstart', function(e) {
+        if (e.touches && e.touches.length === 1) {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            startTime = new Date().getTime();
+        }
+    }, false);
+
+    window.addEventListener('touchend', function(e) {
+        if (!e.changedTouches || e.changedTouches.length !== 1) return;
+
+        var endX = e.changedTouches[0].clientX;
+        var endY = e.changedTouches[0].clientY;
+        var diffX = endX - startX;
+        var diffY = endY - startY;
+        var absX = Math.abs(diffX);
+        var absY = Math.abs(diffY);
+        var duration = new Date().getTime() - startTime;
+
+        // 1. Horizontal swipe gesture
+        if (absX >= 35 && absX > absY && duration < 900) {
+            if (diffX < 0) {
+                // Swipe Left -> Next Page
+                goToPage(currentPage + 1);
+            } else {
+                // Swipe Right -> Previous Page
+                goToPage(currentPage - 1);
+            }
+            return;
+        }
+
+        // 2. Light tap on left/right edges (tap right 30% = next, tap left 30% = prev)
+        if (absX < 15 && absY < 15 && duration < 350) {
+            var width = window.innerWidth || document.documentElement.clientWidth || 1024;
+            if (endX > width * 0.70) {
+                goToPage(currentPage + 1);
+            } else if (endX < width * 0.30) {
+                goToPage(currentPage - 1);
+            }
+        }
+    }, false);
+
+    // Keyboard support for external iPad keyboard or PC testing
     document.addEventListener('keydown', function(e) {
         if (e.keyCode === 37) { // Left arrow
-            {% if prev_page %} window.location.href = "/read/{{ book.id }}?page={{ prev_page }}&zoom={{ zoom }}"; {% endif %}
+            goToPage(currentPage - 1);
         } else if (e.keyCode === 39 || e.keyCode === 32) { // Right arrow or space
-            {% if next_page %} window.location.href = "/read/{{ book.id }}?page={{ next_page }}&zoom={{ zoom }}"; {% endif %}
+            goToPage(currentPage + 1);
         }
-    });
+    }, false);
+
+    // Initial preloads
+    preload(currentPage + 1);
+    preload(currentPage + 2);
     </script>
 
 </body>
@@ -422,10 +498,12 @@ def upload():
     conn.commit()
     conn.close()
 
-    # Pre-render page 1 so it's ready instantly
+    # Pre-render page 1 and page 2 so they are ready instantly
     render_page_to_jpeg(save_path, 1, CACHE_DIR / f"{book_id}_p1.jpg")
+    if page_count > 1:
+        render_page_to_jpeg(save_path, 2, CACHE_DIR / f"{book_id}_p2.jpg")
 
-    return redirect(url_for('read_book', book_id=book_id, page=1))
+    return redirect(url_for('read_book', book_id=book_id))
 
 @app.route('/read/<int:book_id>')
 def read_book(book_id):
@@ -441,30 +519,24 @@ def read_book(book_id):
         current_page = 1
     
     current_page = max(1, min(current_page, book['page_count']))
-    zoom = request.args.get('zoom', '100')
-    if zoom not in ('100', '125', '150'):
-        zoom = '100'
 
     # Update progress in db
     with conn:
         conn.execute('UPDATE books SET current_page = ? WHERE id = ?', (current_page, book_id))
     conn.close()
 
-    prev_page = current_page - 1 if current_page > 1 else None
-    next_page = current_page + 1 if current_page < book['page_count'] else None
-
-    # Pre-render next page asynchronously or on the fly so it's warm in cache
+    # Pre-render current, next, and previous pages
     pdf_path = UPLOADS_DIR / book['filename']
-    if next_page:
-        render_page_to_jpeg(pdf_path, next_page, CACHE_DIR / f"{book_id}_p{next_page}.jpg")
+    render_page_to_jpeg(pdf_path, current_page, CACHE_DIR / f"{book_id}_p{current_page}.jpg")
+    if current_page < book['page_count']:
+        render_page_to_jpeg(pdf_path, current_page + 1, CACHE_DIR / f"{book_id}_p{current_page + 1}.jpg")
+    if current_page > 1:
+        render_page_to_jpeg(pdf_path, current_page - 1, CACHE_DIR / f"{book_id}_p{current_page - 1}.jpg")
 
     return render_template_string(
-        READER_HTML,
+        SWIPE_READER_HTML,
         book=book,
-        current_page=current_page,
-        prev_page=prev_page,
-        next_page=next_page,
-        zoom=zoom
+        current_page=current_page
     )
 
 @app.route('/page/<int:book_id>/<int:page_num>')
@@ -488,6 +560,14 @@ def get_page(book_id, page_num):
     response = send_file(cache_file, mimetype='image/jpeg')
     response.headers['Cache-Control'] = 'public, max-age=86400'
     return response
+
+@app.route('/bookmark/<int:book_id>/<int:page_num>')
+def bookmark(book_id, page_num):
+    conn = get_db()
+    with conn:
+        conn.execute('UPDATE books SET current_page = ? WHERE id = ?', (page_num, book_id))
+    conn.close()
+    return ('', 204)
 
 @app.route('/delete/<int:book_id>', methods=['POST'])
 def delete_book(book_id):
