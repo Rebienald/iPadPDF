@@ -12,6 +12,7 @@ import socket
 import sqlite3
 import subprocess
 import shutil
+import json
 from pathlib import Path
 from flask import Flask, request, redirect, url_for, send_file, render_template_string, abort
 import pypdfium2 as pdfium
@@ -336,12 +337,16 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
 </head>
 <body>
 
-    <!-- Minimal top header -->
+    <!-- Minimal top header with Book Switcher -->
     <div id="topBar">
-        <a href="/" class="nav-link">&larr; Library</a>
-        <a href="javascript:void(0)" onclick="startOfflineCache()" class="nav-link" id="cacheBtn" style="margin-left: 14px; font-weight: normal; color: #ffcc00 !important;">Save Offline</a>
+        <select id="bookSelect" onchange="switchBook(this.value)" style="background: #2b2b2b; color: #ffffff; border: 1px solid #555555; padding: 4px 6px; font-size: 14px; border-radius: 4px; max-width: 175px; float: left; margin-top: 1px; -webkit-appearance: menulist;">
+            {% for b in all_books %}
+            <option value="{{ b.id }}" {% if b.id == book.id %}selected{% endif %}>{{ b.title }} ({{ b.page_count }}p)</option>
+            {% endfor %}
+        </select>
+        <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-link" id="cacheBtn" style="margin-left: 10px; font-weight: normal; color: #ffcc00 !important; font-size: 13px;">Save All Offline</a>
+        <a href="/" class="nav-link" style="margin-left: 10px; font-size: 13px; color: #888888 !important;">Upload</a>
         <span class="page-badge" id="pageDisplay">{{ current_page }} / {{ book.page_count }}</span>
-        <div class="book-title">{{ book.title }}</div>
     </div>
     <div id="cacheStatus" style="display: none; background: #2a2a2a; border-bottom: 1px solid #444; color: #ffcc00; text-align: center; font-size: 13px; padding: 6px 10px; position: fixed; top: 38px; left: 0; right: 0; z-index: 998;"></div>
 
@@ -351,61 +356,91 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
         <div id="tapHint">Swipe left for Next &bull; Swipe right for Prev</div>
     </div>
 
-    <!-- Ultra-lightweight ES5 Touch/Swipe & Offline handler for iOS 5 Safari -->
+    <!-- Ultra-lightweight ES5 Multi-Book Offline handler for iOS 5 Safari -->
     <script>
-    var bookId = {{ book.id }};
+    var allBooks = {{ books_json|safe }};
+    var currentBookId = {{ book.id }};
     var currentPage = {{ current_page }};
     var totalPages = {{ book.page_count }};
+
+    function getBook(id) {
+        for (var i = 0; i < allBooks.length; i++) {
+            if (allBooks[i].id == id) return allBooks[i];
+        }
+        return null;
+    }
+
+    function switchBook(newId) {
+        var b = getBook(newId);
+        if (!b) return;
+        currentBookId = b.id;
+        totalPages = b.page_count;
+        currentPage = b.current_page || 1;
+        document.getElementById('bookSelect').value = newId;
+        goToPage(currentPage);
+    }
 
     var startX = 0;
     var startY = 0;
     var startTime = 0;
 
     var isCaching = false;
-    function startOfflineCache() {
+    function startOfflineCacheAll() {
         if (isCaching) return;
         isCaching = true;
         var btn = document.getElementById('cacheBtn');
         var status = document.getElementById('cacheStatus');
         status.style.display = 'block';
         status.style.color = '#ffcc00';
-        status.innerText = 'Starting offline save...';
+        status.innerText = 'Preparing to cache all documents...';
         btn.style.opacity = '0.5';
 
-        var currentIdx = 1;
-        function cacheNext() {
-            if (currentIdx > totalPages) {
+        var queue = [];
+        for (var i = 0; i < allBooks.length; i++) {
+            var b = allBooks[i];
+            for (var p = 1; p <= b.page_count; p++) {
+                queue.push({ id: b.id, page: p, title: b.title, total: b.page_count });
+            }
+        }
+
+        var totalItems = queue.length;
+        var queueIdx = 0;
+
+        function processQueue() {
+            if (queueIdx >= totalItems) {
                 status.style.color = '#34c759';
-                status.innerText = 'Saved! You can now turn off Wi-Fi and swipe through the entire book.';
-                btn.innerText = 'Offline Ready';
+                status.innerText = 'Saved all ' + allBooks.length + ' documents (' + totalItems + ' pages)! Ready for school offline.';
+                btn.innerText = 'All Offline Ready';
                 btn.style.color = '#34c759 !important';
                 btn.style.opacity = '1.0';
                 setTimeout(function() {
                     status.style.display = 'none';
-                }, 5000);
+                }, 7000);
                 isCaching = false;
                 return;
             }
 
-            status.innerText = 'Saving for offline: Page ' + currentIdx + ' of ' + totalPages + '...';
+            var item = queue[queueIdx];
+            status.innerText = 'Saving ' + item.title + ' (' + item.page + '/' + item.total + ') • ' + (queueIdx + 1) + '/' + totalItems;
+
             var temp = new Image();
             temp.onload = temp.onerror = function() {
                 temp.onload = null;
                 temp.onerror = null;
                 temp = null;
-                currentIdx++;
-                setTimeout(cacheNext, 50);
+                queueIdx++;
+                setTimeout(processQueue, 40);
             };
-            temp.src = '/page/' + bookId + '/' + currentIdx;
+            temp.src = '/page/' + item.id + '/' + item.page;
         }
 
-        cacheNext();
+        processQueue();
     }
 
     function preload(p) {
         if (p >= 1 && p <= totalPages) {
             var img = new Image();
-            img.src = '/page/' + bookId + '/' + p;
+            img.src = '/page/' + currentBookId + '/' + p;
         }
     }
 
@@ -418,7 +453,7 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
         // Instant image swap without reloading webpage
         var img = document.getElementById('pageImg');
         if (img) {
-            img.src = '/page/' + bookId + '/' + p;
+            img.src = '/page/' + currentBookId + '/' + p;
         }
 
         // Update page indicator badge
@@ -436,11 +471,11 @@ SWIPE_READER_HTML = '''<!DOCTYPE html>
 
         // Update server reading progress silently
         var ping = new Image();
-        ping.src = '/bookmark/' + bookId + '/' + p;
+        ping.src = '/bookmark/' + currentBookId + '/' + p;
 
         // Update browser URL silently if history API supported
         if (window.history && window.history.replaceState) {
-            window.history.replaceState(null, '', '/read/' + bookId + '?page=' + p);
+            window.history.replaceState(null, '', '/read/' + currentBookId + '?page=' + p);
         }
     }
 
@@ -563,9 +598,17 @@ def read_book(book_id):
     
     current_page = max(1, min(current_page, book['page_count']))
 
-    # Update progress in db
-    with conn:
-        conn.execute('UPDATE books SET current_page = ? WHERE id = ?', (current_page, book_id))
+    all_books_rows = conn.execute('SELECT id, title, page_count, current_page FROM books ORDER BY created_at DESC').fetchall()
+    all_books = [
+        {
+            'id': b['id'],
+            'title': b['title'],
+            'page_count': b['page_count'],
+            'current_page': b['current_page']
+        }
+        for b in all_books_rows
+    ]
+    books_json = json.dumps(all_books)
     conn.close()
 
     # Pre-render current, next, and previous pages
@@ -579,6 +622,8 @@ def read_book(book_id):
     return render_template_string(
         SWIPE_READER_HTML,
         book=book,
+        all_books=all_books,
+        books_json=books_json,
         current_page=current_page
     )
 
