@@ -682,11 +682,32 @@ SPA_HTML = '''<!DOCTYPE html>
         renderContinuousPages(targetPage);
     }
 
+    function preventTouchScroll(e) {
+        var t = e.target;
+        var inChat = false;
+        while (t && t !== document.body) {
+            if (t.id === 'chatModal') {
+                inChat = true;
+                break;
+            }
+            t = t.parentNode;
+        }
+        if (!inChat) {
+            e.preventDefault();
+        }
+    }
+
     function closeChat() {
         var modal = document.getElementById('chatModal');
         var btn = document.getElementById('chatFloatBtn');
         if (modal) modal.style.display = 'none';
         if (btn) btn.style.display = 'block';
+        var pArea = document.getElementById('pageArea');
+        if (pArea) {
+            pArea.style.overflow = '';
+            pArea.style.overflowY = 'scroll';
+        }
+        document.removeEventListener('touchmove', preventTouchScroll, false);
     }
 
     function closeBook() {
@@ -709,6 +730,11 @@ SPA_HTML = '''<!DOCTYPE html>
         if (modal.style.display === 'none' || modal.style.display === '') {
             modal.style.display = 'block';
             if (btn) btn.style.display = 'none';
+            var pArea = document.getElementById('pageArea');
+            if (pArea) {
+                pArea.style.overflow = 'hidden';
+            }
+            document.addEventListener('touchmove', preventTouchScroll, false);
             var inp = document.getElementById('chatInput');
             if (inp) {
                 setTimeout(function() { inp.focus(); }, 60);
@@ -875,6 +901,9 @@ SPA_HTML = '''<!DOCTYPE html>
     }
 
     document.addEventListener('keydown', function(e) {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+        var modal = document.getElementById('chatModal');
+        if (modal && modal.style.display !== 'none' && modal.style.display !== '') return;
         if (document.getElementById('readerView').style.display === 'none') return;
         var pArea = document.getElementById('pageArea');
         if (!pArea) return;
