@@ -430,15 +430,20 @@ SPA_HTML = '''<!DOCTYPE html>
     /* Monochrome Fullscreen Reader View */
     #readerView {
         display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        height: 100%;
         background-color: #000000;
         color: #ffffff;
-        min-height: 100%;
-        width: 100%;
-        overflow-x: hidden;
-        -webkit-overflow-scrolling: touch;
+        overflow: hidden;
+        z-index: 10;
     }
     #topBar {
-        position: fixed;
+        position: absolute;
         top: 0;
         left: 0;
         right: 0;
@@ -474,11 +479,19 @@ SPA_HTML = '''<!DOCTYPE html>
         letter-spacing: 1px;
     }
     #pageArea {
-        padding-top: 48px;
-        padding-bottom: 30px;
+        position: absolute;
+        top: 44px;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        overflow-y: scroll;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        padding-top: 10px;
+        padding-bottom: 40px;
         text-align: center;
-        width: 100%;
         background-color: #000000;
+        width: 100%;
     }
     .pdf-page-container {
         text-align: center;
@@ -592,9 +605,9 @@ SPA_HTML = '''<!DOCTYPE html>
         <div id="pageArea"></div>
 
         <!-- Minimalist Chat Floating Button & Modal -->
-        <div id="chatFloatBtn" onclick="toggleChat()" style="position: fixed; bottom: 20px; right: 20px; width: 44px; height: 44px; line-height: 42px; text-align: center; background: #000000; color: #ffffff; border: 2px solid #ffffff; border-radius: 22px; font-size: 20px; font-weight: bold; cursor: pointer; z-index: 999; -webkit-box-shadow: 0 0 6px rgba(255,255,255,0.4); box-shadow: 0 0 6px rgba(255,255,255,0.4);">?</div>
+        <div id="chatFloatBtn" onclick="toggleChat()" style="position: absolute; bottom: 20px; right: 20px; width: 44px; height: 44px; line-height: 42px; text-align: center; background: #000000; color: #ffffff; border: 2px solid #ffffff; border-radius: 22px; font-size: 20px; font-weight: bold; cursor: pointer; z-index: 999; -webkit-box-shadow: 0 0 6px rgba(255,255,255,0.4); box-shadow: 0 0 6px rgba(255,255,255,0.4);">?</div>
 
-        <div id="chatModal" style="display: none; position: fixed; top: 48px; left: 8px; right: 8px; max-width: 520px; margin: 0 auto; background: #000000; border: 2px solid #ffffff; border-radius: 6px; z-index: 1000; color: #ffffff; padding: 10px 12px; font-family: -apple-system, Helvetica, Arial, sans-serif; -webkit-box-shadow: 0 4px 16px rgba(0,0,0,0.9); box-shadow: 0 4px 16px rgba(0,0,0,0.9);">
+        <div id="chatModal" style="display: none; position: absolute; top: 48px; left: 8px; right: 8px; max-width: 520px; margin: 0 auto; background: #000000; border: 2px solid #ffffff; border-radius: 6px; z-index: 1000; color: #ffffff; padding: 10px 12px; font-family: -apple-system, Helvetica, Arial, sans-serif; -webkit-box-shadow: 0 4px 16px rgba(0,0,0,0.9); box-shadow: 0 4px 16px rgba(0,0,0,0.9);">
             <div style="overflow: hidden; padding-bottom: 6px; border-bottom: 1px solid #333333; margin-bottom: 8px;">
                 <span style="font-size: 14px; font-weight: bold; letter-spacing: 1px; float: left; line-height: 28px;">DOCUMENT CHAT</span>
                 <button onclick="closeChat()" style="float: right; padding: 4px 12px; font-size: 13px; font-weight: bold; margin-left: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; border: 1px solid #ffffff; border-radius: 3px; -webkit-appearance: none;">Close &times;</button>
@@ -661,6 +674,7 @@ SPA_HTML = '''<!DOCTYPE html>
         } catch(e) {}
 
         document.body.style.backgroundColor = '#000000';
+        document.body.style.overflow = 'hidden';
         document.getElementById('libraryView').style.display = 'none';
         document.getElementById('readerView').style.display = 'block';
         document.getElementById('readerBookSelect').value = b.id;
@@ -681,6 +695,7 @@ SPA_HTML = '''<!DOCTYPE html>
         } catch(e) {}
         closeChat();
         document.body.style.backgroundColor = '#ffffff';
+        document.body.style.overflow = 'auto';
         document.getElementById('pageArea').innerHTML = '';
         document.getElementById('readerView').style.display = 'none';
         document.getElementById('libraryView').style.display = 'block';
@@ -805,13 +820,14 @@ SPA_HTML = '''<!DOCTYPE html>
         if (targetPage && targetPage > 1) {
             setTimeout(function() {
                 var el = document.getElementById('pageWrap_' + targetPage);
-                if (el) {
-                    var topPos = Math.max(0, el.offsetTop - 50);
-                    window.scrollTo(0, topPos);
+                var container = document.getElementById('pageArea');
+                if (el && container) {
+                    container.scrollTop = el.offsetTop;
                 }
             }, 60);
         } else {
-            window.scrollTo(0, 0);
+            var container = document.getElementById('pageArea');
+            if (container) container.scrollTop = 0;
         }
     }
 
@@ -828,14 +844,16 @@ SPA_HTML = '''<!DOCTYPE html>
     }
 
     var scrollTimer = null;
-    window.addEventListener('scroll', function() {
+    function handleReaderScroll() {
         if (document.getElementById('readerView').style.display === 'none' || !currentBook) return;
         if (scrollTimer) return;
         scrollTimer = setTimeout(function() {
             scrollTimer = null;
             var wraps = document.getElementsByClassName('pdf-page-container');
-            var scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
-            var mid = scrollY + (window.innerHeight || 768) * 0.4;
+            var container = document.getElementById('pageArea');
+            var scrollY = container ? container.scrollTop : (window.pageYOffset || 0);
+            var viewH = container ? container.clientHeight : (window.innerHeight || 768);
+            var mid = scrollY + viewH * 0.4;
             for (var i = 0; i < wraps.length; i++) {
                 var top = wraps[i].offsetTop;
                 var bottom = top + wraps[i].offsetHeight;
@@ -848,12 +866,20 @@ SPA_HTML = '''<!DOCTYPE html>
                 }
             }
         }, 120);
-    }, false);
+    }
+
+    window.addEventListener('scroll', handleReaderScroll, false);
+    var pAreaEl = document.getElementById('pageArea');
+    if (pAreaEl) {
+        pAreaEl.addEventListener('scroll', handleReaderScroll, false);
+    }
 
     document.addEventListener('keydown', function(e) {
         if (document.getElementById('readerView').style.display === 'none') return;
-        if (e.keyCode === 38 || e.keyCode === 37) window.scrollBy(0, -200);
-        else if (e.keyCode === 40 || e.keyCode === 39 || e.keyCode === 32) window.scrollBy(0, 200);
+        var pArea = document.getElementById('pageArea');
+        if (!pArea) return;
+        if (e.keyCode === 38 || e.keyCode === 37) pArea.scrollTop -= 200;
+        else if (e.keyCode === 40 || e.keyCode === 39 || e.keyCode === 32) pArea.scrollTop += 200;
     }, false);
 
     var isCaching = false;
