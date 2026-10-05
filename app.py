@@ -206,7 +206,7 @@ def sync_git_repo(commit_message):
         subprocess.run(['git', 'add', '-A', 'uploads', 'data'], cwd=str(BASE_DIR), capture_output=True)
         diff_check = subprocess.run(['git', 'diff', '--staged', '--name-only'], cwd=str(BASE_DIR), capture_output=True, text=True)
         if diff_check.stdout.strip():
-            subprocess.run(['git', 'commit', '-m', f"Auto-sync: {commit_message}"], cwd=str(BASE_DIR), capture_output=True)
+            subprocess.run(['git', 'commit', '-m', f"Auto-sync: {commit_message} [skip render]"], cwd=str(BASE_DIR), capture_output=True)
             subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(BASE_DIR), capture_output=True)
             app.logger.info(f"Auto-sync pushed to GitHub: {commit_message}")
     except Exception as e:
@@ -967,10 +967,12 @@ def upload():
     conn.commit()
     conn.close()
 
-    # Pre-render page 1 in grayscale
-    render_page_to_jpeg(save_path, 1, CACHE_DIR / f"{book_id}_p1.jpg")
-    if page_count > 1:
-        render_page_to_jpeg(save_path, 2, CACHE_DIR / f"{book_id}_p2.jpg")
+    # Pre-render page 1 & 2 in background so upload redirect is instant
+    def prerender():
+        render_page_to_jpeg(save_path, 1, CACHE_DIR / f"{book_id}_p1.jpg")
+        if page_count > 1:
+            render_page_to_jpeg(save_path, 2, CACHE_DIR / f"{book_id}_p2.jpg")
+    threading.Thread(target=prerender, daemon=True).start()
 
     trigger_git_sync(f"Upload {clean_title}")
 
