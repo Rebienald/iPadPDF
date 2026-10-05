@@ -527,28 +527,28 @@ SPA_HTML = '''<!DOCTYPE html>
 
         <div id="pageArea"></div>
 
-        <!-- Minimalist Chat Floating Button & Drawer -->
+        <!-- Minimalist Chat Floating Button & Modal -->
         <div id="chatFloatBtn" onclick="toggleChat()" style="position: fixed; bottom: 20px; right: 20px; width: 44px; height: 44px; line-height: 42px; text-align: center; background: #000000; color: #ffffff; border: 2px solid #ffffff; border-radius: 22px; font-size: 20px; font-weight: bold; cursor: pointer; z-index: 999; -webkit-box-shadow: 0 0 6px rgba(255,255,255,0.4); box-shadow: 0 0 6px rgba(255,255,255,0.4);">?</div>
 
-        <div id="chatModal" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; max-height: 55%; background: #000000; border-top: 2px solid #ffffff; z-index: 1000; color: #ffffff; padding: 10px 12px; font-family: -apple-system, Helvetica, Arial, sans-serif;">
+        <div id="chatModal" style="display: none; position: fixed; top: 48px; left: 8px; right: 8px; max-width: 520px; margin: 0 auto; background: #000000; border: 2px solid #ffffff; border-radius: 6px; z-index: 1000; color: #ffffff; padding: 10px 12px; font-family: -apple-system, Helvetica, Arial, sans-serif; -webkit-box-shadow: 0 4px 16px rgba(0,0,0,0.9); box-shadow: 0 4px 16px rgba(0,0,0,0.9);">
             <div style="overflow: hidden; padding-bottom: 6px; border-bottom: 1px solid #333333; margin-bottom: 8px;">
-                <span style="font-size: 14px; font-weight: bold; letter-spacing: 1px;">DOCUMENT CHAT</span>
-                <span onclick="toggleChat()" style="float: right; cursor: pointer; font-size: 16px; padding: 0 6px; font-weight: bold; border: 1px solid #555555; background: #222222;">&times;</span>
-                <span onclick="clearChatHistory()" style="float: right; cursor: pointer; font-size: 12px; padding: 2px 6px; margin-right: 8px; border: 1px solid #555555; background: #222222;">Clear</span>
+                <span style="font-size: 14px; font-weight: bold; letter-spacing: 1px; float: left; line-height: 26px;">DOCUMENT CHAT</span>
+                <button onclick="closeChat()" class="btn" style="float: right; padding: 3px 10px; font-size: 13px; font-weight: bold; margin-left: 6px; cursor: pointer; background: #ffffff; color: #000000; border: none; border-radius: 3px;">Close &times;</button>
+                <button onclick="clearChatHistory()" class="btn btn-light" style="float: right; padding: 3px 8px; font-size: 12px; cursor: pointer; background: #222222; color: #ffffff; border: 1px solid #555555; border-radius: 3px;">Clear</button>
             </div>
-            <div id="chatMessages" style="max-height: 180px; overflow-y: auto; -webkit-overflow-scrolling: touch; font-size: 13px; line-height: 1.4; margin-bottom: 8px; border: 1px solid #222222; padding: 6px; background: #111111;">
-                <div style="color: #888888; font-style: italic;">Ask any question about this document.</div>
-            </div>
-            <table style="width: 100%; border-collapse: collapse; border-spacing: 0;">
+            <table style="width: 100%; border-collapse: collapse; border-spacing: 0; margin-bottom: 8px;">
                 <tr>
                     <td style="padding: 0 6px 0 0;">
-                        <input type="text" id="chatInput" placeholder="Ask a question..." onkeydown="if(event.keyCode===13)sendChatMessage();" style="width: 100%; box-sizing: border-box; background: #222222; color: #ffffff; border: 1px solid #666666; padding: 8px; font-size: 14px; border-radius: 3px; -webkit-appearance: none;">
+                        <input type="text" id="chatInput" placeholder="Ask a question..." onkeydown="if(event.keyCode===13)sendChatMessage();" style="width: 100%; box-sizing: border-box; -webkit-box-sizing: border-box; background: #222222; color: #ffffff; border: 1px solid #666666; padding: 8px; font-size: 14px; border-radius: 3px; -webkit-appearance: none;">
                     </td>
                     <td style="width: 60px; padding: 0;">
                         <button id="chatSendBtn" onclick="sendChatMessage()" style="width: 100%; background: #ffffff; color: #000000; font-weight: bold; border: none; padding: 8px 0; font-size: 14px; border-radius: 3px; cursor: pointer;">Ask</button>
                     </td>
                 </tr>
             </table>
+            <div id="chatMessages" style="height: 180px; max-height: 200px; overflow-y: auto; -webkit-overflow-scrolling: touch; font-size: 13px; line-height: 1.4; border: 1px solid #222222; padding: 6px; background: #111111; border-radius: 3px;">
+                <div style="color: #888888; font-style: italic;">Ask any question about this document.</div>
+            </div>
         </div>
     </div>
 
@@ -604,12 +604,18 @@ SPA_HTML = '''<!DOCTYPE html>
         renderContinuousPages(targetPage);
     }
 
+    function closeChat() {
+        var modal = document.getElementById('chatModal');
+        var btn = document.getElementById('chatFloatBtn');
+        if (modal) modal.style.display = 'none';
+        if (btn) btn.style.display = 'block';
+    }
+
     function closeBook() {
         try {
             localStorage.removeItem('ipad_active_book');
         } catch(e) {}
-        var modal = document.getElementById('chatModal');
-        if (modal) modal.style.display = 'none';
+        closeChat();
         document.body.style.backgroundColor = '#ffffff';
         document.getElementById('pageArea').innerHTML = '';
         document.getElementById('readerView').style.display = 'none';
@@ -619,13 +625,17 @@ SPA_HTML = '''<!DOCTYPE html>
 
     function toggleChat() {
         var modal = document.getElementById('chatModal');
+        var btn = document.getElementById('chatFloatBtn');
         if (!modal) return;
         if (modal.style.display === 'none' || modal.style.display === '') {
             modal.style.display = 'block';
+            if (btn) btn.style.display = 'none';
             var inp = document.getElementById('chatInput');
-            if (inp) inp.focus();
+            if (inp) {
+                setTimeout(function() { inp.focus(); }, 60);
+            }
         } else {
-            modal.style.display = 'none';
+            closeChat();
         }
     }
 
@@ -695,7 +705,6 @@ SPA_HTML = '''<!DOCTYPE html>
                 botDiv.innerHTML = '<span style="display: inline-block; background: #000000; border: 1px solid #444444; color: #ffffff; padding: 4px 8px; border-radius: 4px; max-width: 90%; text-align: left; word-wrap: break-word;">' + cleanAns + '</span>';
                 box.appendChild(botDiv);
                 box.scrollTop = box.scrollHeight;
-                inp.focus();
             }
         };
         xhr.send(JSON.stringify({ question: q }));
