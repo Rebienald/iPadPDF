@@ -1,10 +1,6 @@
 __pycache__/
 *.pyc
-uploads/*
-!uploads/.gitkeep
 cache/*
 !cache/.gitkeep
-data/*
-!data/.gitkeep
 .env
 .DS_Store

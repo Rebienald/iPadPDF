@@ -18,6 +18,7 @@ import subprocess
 import shutil
 import json
 import gzip
+import threading
 from pathlib import Path
 from flask import Flask, request, redirect, url_for, send_file, render_template_string, abort, jsonify
 import pypdfium2 as pdfium
@@ -164,6 +165,57 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=160, quality=88):
     except Exception as e:
         app.logger.error(f'Failed rendering page {page_num}: {e}')
         return False
+
+def sync_uploaded_files_to_db():
+    try:
+        conn = get_db()
+        existing_files = {row['filename'] for row in conn.execute('SELECT filename FROM books').fetchall()}
+        added = False
+        for pdf_file in sorted(UPLOADS_DIR.glob('*.pdf')):
+            if pdf_file.name not in existing_files:
+                clean_title = pdf_file.stem
+                parts = clean_title.split('_', 1)
+                if len(parts) == 2 and parts[0].isdigit():
+                    clean_title = parts[1]
+                clean_title = clean_title.replace('_', ' ').replace('-', ' ').strip()
+                page_count = count_pages(pdf_file)
+                filesize = pdf_file.stat().st_size
+                with conn:
+                    conn.execute('''
+                        INSERT INTO books (title, filename, page_count, filesize, current_page)
+                        VALUES (?, ?, ?, ?, 1)
+                    ''', (clean_title, pdf_file.name, page_count, filesize))
+                added = True
+        conn.close()
+        if added:
+            app.logger.info("Auto-registered untracked PDFs found in uploads directory")
+    except Exception as e:
+        app.logger.error(f"Error syncing uploaded files to db: {e}")
+
+sync_uploaded_files_to_db()
+
+def sync_git_repo(commit_message):
+    try:
+        token = os.environ.get('GITHUB_TOKEN', '').strip()
+        if token:
+            subprocess.run(['git', 'config', 'user.email', 'ipadpdf@noreply.github.com'], cwd=str(BASE_DIR), capture_output=True)
+            subprocess.run(['git', 'config', 'user.name', 'iPadPDF Server'], cwd=str(BASE_DIR), capture_output=True)
+            remote_url = f"https://oauth2:{token}@github.com/Rebienald/iPadPDF.git"
+            subprocess.run(['git', 'remote', 'set-url', 'origin', remote_url], cwd=str(BASE_DIR), capture_output=True)
+
+        subprocess.run(['git', 'add', '-A', 'uploads', 'data'], cwd=str(BASE_DIR), capture_output=True)
+        diff_check = subprocess.run(['git', 'diff', '--staged', '--name-only'], cwd=str(BASE_DIR), capture_output=True, text=True)
+        if diff_check.stdout.strip():
+            subprocess.run(['git', 'commit', '-m', f"Auto-sync: {commit_message}"], cwd=str(BASE_DIR), capture_output=True)
+            subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(BASE_DIR), capture_output=True)
+            app.logger.info(f"Auto-sync pushed to GitHub: {commit_message}")
+    except Exception as e:
+        app.logger.error(f"Git auto-sync error: {e}")
+
+def trigger_git_sync(commit_message):
+    t = threading.Thread(target=sync_git_repo, args=(commit_message,))
+    t.daemon = True
+    t.start()
 
 # ==================== AI ENGINE (GEMINI WITH ROTATION & BACKUPS) ====================
 def get_api_keys():
@@ -920,6 +972,8 @@ def upload():
     if page_count > 1:
         render_page_to_jpeg(save_path, 2, CACHE_DIR / f"{book_id}_p2.jpg")
 
+    trigger_git_sync(f"Upload {clean_title}")
+
     return redirect(url_for('index'))
 
 @app.route('/page/<int:book_id>/<int:page_num>')
@@ -956,6 +1010,7 @@ def bookmark(book_id, page_num):
 def delete_book(book_id):
     conn = get_db()
     book = conn.execute('SELECT * FROM books WHERE id = ?', (book_id,)).fetchone()
+    book_title = book['title'] if book else ''
     if book:
         pdf_path = UPLOADS_DIR / book['filename']
         if pdf_path.exists():
@@ -974,6 +1029,10 @@ def delete_book(book_id):
             conn.execute('DELETE FROM quizzes WHERE book_id = ?', (book_id,))
             conn.execute('DELETE FROM books WHERE id = ?', (book_id,))
     conn.close()
+
+    if book_title:
+        trigger_git_sync(f"Delete {book_title}")
+
     return redirect(url_for('index'))
 
 QUIZ_HTML = '''<!DOCTYPE html>
