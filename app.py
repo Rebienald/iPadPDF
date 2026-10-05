@@ -338,6 +338,18 @@ SPA_HTML = '''<!DOCTYPE html>
         -webkit-box-sizing: border-box;
         box-sizing: border-box;
         border-radius: 0 !important;
+        -webkit-touch-callout: none !important;
+        -webkit-user-select: none !important;
+        -khtml-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        user-select: none !important;
+        -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
+    }
+    input, textarea {
+        -webkit-touch-callout: default !important;
+        -webkit-user-select: text !important;
+        user-select: text !important;
     }
     body, html {
         margin: 0;
@@ -584,9 +596,9 @@ SPA_HTML = '''<!DOCTYPE html>
 
         <div id="chatModal" style="display: none; position: fixed; top: 48px; left: 8px; right: 8px; max-width: 520px; margin: 0 auto; background: #000000; border: 2px solid #ffffff; border-radius: 6px; z-index: 1000; color: #ffffff; padding: 10px 12px; font-family: -apple-system, Helvetica, Arial, sans-serif; -webkit-box-shadow: 0 4px 16px rgba(0,0,0,0.9); box-shadow: 0 4px 16px rgba(0,0,0,0.9);">
             <div style="overflow: hidden; padding-bottom: 6px; border-bottom: 1px solid #333333; margin-bottom: 8px;">
-                <span style="font-size: 14px; font-weight: bold; letter-spacing: 1px; float: left; line-height: 26px;">DOCUMENT CHAT</span>
-                <button onclick="closeChat()" class="btn" style="float: right; padding: 3px 10px; font-size: 13px; font-weight: bold; margin-left: 6px; cursor: pointer; background: #ffffff; color: #000000; border: none; border-radius: 3px;">Close &times;</button>
-                <button onclick="clearChatHistory()" class="btn btn-light" style="float: right; padding: 3px 8px; font-size: 12px; cursor: pointer; background: #222222; color: #ffffff; border: 1px solid #555555; border-radius: 3px;">Clear</button>
+                <span style="font-size: 14px; font-weight: bold; letter-spacing: 1px; float: left; line-height: 28px;">DOCUMENT CHAT</span>
+                <button onclick="closeChat()" style="float: right; padding: 4px 12px; font-size: 13px; font-weight: bold; margin-left: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; border: 1px solid #ffffff; border-radius: 3px; -webkit-appearance: none;">Close &times;</button>
+                <button onclick="clearChatHistory()" style="float: right; padding: 4px 10px; font-size: 12px; font-weight: bold; cursor: pointer; background: #000000 !important; color: #ffffff !important; border: 1px solid #888888; border-radius: 3px; -webkit-appearance: none;">Clear</button>
             </div>
             <table style="width: 100%; border-collapse: collapse; border-spacing: 0; margin-bottom: 8px;">
                 <tr>
@@ -594,7 +606,7 @@ SPA_HTML = '''<!DOCTYPE html>
                         <input type="text" id="chatInput" placeholder="Ask a question..." onkeydown="if(event.keyCode===13)sendChatMessage();" style="width: 100%; box-sizing: border-box; -webkit-box-sizing: border-box; background: #222222; color: #ffffff; border: 1px solid #666666; padding: 8px; font-size: 14px; border-radius: 3px; -webkit-appearance: none;">
                     </td>
                     <td style="width: 60px; padding: 0;">
-                        <button id="chatSendBtn" onclick="sendChatMessage()" style="width: 100%; background: #ffffff; color: #000000; font-weight: bold; border: none; padding: 8px 0; font-size: 14px; border-radius: 3px; cursor: pointer;">Ask</button>
+                        <button id="chatSendBtn" onclick="sendChatMessage()" style="width: 100%; background: #ffffff !important; color: #000000 !important; font-weight: bold; border: 1px solid #ffffff; padding: 8px 0; font-size: 14px; border-radius: 3px; cursor: pointer; -webkit-appearance: none;">Ask</button>
                     </td>
                 </tr>
             </table>
@@ -903,6 +915,17 @@ SPA_HTML = '''<!DOCTYPE html>
             }
         } catch(e) {}
     }, false);
+
+    document.addEventListener('contextmenu', function(e) {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+        e.preventDefault();
+        return false;
+    }, false);
+    document.addEventListener('selectstart', function(e) {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+        e.preventDefault();
+        return false;
+    }, false);
     </script>
 
 </body>
@@ -1050,6 +1073,18 @@ QUIZ_HTML = '''<!DOCTYPE html>
         -webkit-box-sizing: border-box;
         box-sizing: border-box;
         border-radius: 0 !important;
+        -webkit-touch-callout: none !important;
+        -webkit-user-select: none !important;
+        -khtml-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        user-select: none !important;
+        -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
+    }
+    input, textarea {
+        -webkit-touch-callout: default !important;
+        -webkit-user-select: text !important;
+        user-select: text !important;
     }
     body, html {
         margin: 0;
@@ -1315,6 +1350,17 @@ function resetQuiz() {
     document.getElementById('checkBtn').style.display = 'inline-block';
     document.getElementById('resetBtn').style.display = 'none';
 }
+
+document.addEventListener('contextmenu', function(e) {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    e.preventDefault();
+    return false;
+}, false);
+document.addEventListener('selectstart', function(e) {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    e.preventDefault();
+    return false;
+}, false);
 </script>
 </body>
 </html>'''
