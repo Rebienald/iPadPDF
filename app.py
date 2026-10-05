@@ -19,7 +19,7 @@ import shutil
 import json
 import gzip
 from pathlib import Path
-from flask import Flask, request, redirect, url_for, send_file, render_template_string, abort
+from flask import Flask, request, redirect, url_for, send_file, render_template_string, abort, jsonify
 import pypdfium2 as pdfium
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -27,6 +27,22 @@ UPLOADS_DIR = BASE_DIR / 'uploads'
 CACHE_DIR = BASE_DIR / 'cache'
 DATA_DIR = BASE_DIR / 'data'
 DB_PATH = DATA_DIR / 'library.db'
+
+# Load environment variables from local .env if present
+env_file = BASE_DIR / '.env'
+if env_file.exists():
+    try:
+        with open(env_file, 'r', encoding='utf-8') as ef:
+            for line in ef:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    k = k.strip()
+                    v = v.strip().strip('\'"')
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+    except Exception:
+        pass
 
 for d in (UPLOADS_DIR, CACHE_DIR, DATA_DIR):
     d.mkdir(parents=True, exist_ok=True)
@@ -53,6 +69,9 @@ def compress_response(response):
             response.headers['Content-Length'] = len(compressed)
     return response
 
+import urllib.request
+import urllib.error
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -70,6 +89,16 @@ def init_db():
                 filesize INTEGER NOT NULL DEFAULT 0,
                 current_page INTEGER NOT NULL DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS quizzes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id INTEGER NOT NULL,
+                q_count INTEGER NOT NULL DEFAULT 5,
+                quiz_data TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(book_id, q_count)
             )
         ''')
     conn.close()
@@ -135,6 +164,112 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=160, quality=88):
     except Exception as e:
         app.logger.error(f'Failed rendering page {page_num}: {e}')
         return False
+
+# ==================== AI ENGINE (GEMINI WITH ROTATION & BACKUPS) ====================
+def get_api_keys():
+    keys = []
+    primary = os.environ.get('GEMINI_API_KEY', '').strip()
+    if primary:
+        keys.append(primary)
+    backups = os.environ.get('GEMINI_BACKUP_KEYS', '').strip()
+    if backups:
+        for k in backups.split(','):
+            k = k.strip()
+            if k and k not in keys:
+                keys.append(k)
+    return keys
+
+def extract_pdf_text(pdf_path, max_chars=100000):
+    text = ""
+    # Extract complete PDF text using poppler pdftotext
+    if shutil.which('pdftotext'):
+        try:
+            cmd = ['pdftotext', str(pdf_path), '-']
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=12)
+            if res.returncode == 0 and res.stdout.strip():
+                text = res.stdout.strip()
+        except Exception:
+            pass
+    # Fallback to pdfium for entire document
+    if not text:
+        try:
+            doc = pdfium.PdfDocument(str(pdf_path))
+            parts = []
+            for p in range(len(doc)):
+                page = doc[p]
+                tp = page.get_textpage()
+                parts.append(tp.get_text_range())
+            doc.close()
+            text = "\n".join(parts).strip()
+        except Exception:
+            pass
+    return text[:max_chars]
+
+def call_gemini(prompt, response_mime="text/plain", timeout=30):
+    payload = {
+        'contents': [{'parts': [{'text': prompt}]}]
+    }
+    if response_mime == "application/json":
+        payload['generationConfig'] = {'responseMimeType': 'application/json'}
+
+    models = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-latest']
+    api_keys = get_api_keys()
+    if not api_keys:
+        app.logger.warning('No Gemini API keys configured.')
+        return None
+
+    for key in api_keys:
+        for m in models:
+            url = f'https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={key}'
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'}
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as res:
+                    data = json.loads(res.read().decode('utf-8'))
+                    return data['candidates'][0]['content']['parts'][0]['text']
+            except Exception as e:
+                app.logger.warning(f'Gemini key/model {m} failed: {e}')
+                continue
+    return None
+
+def generate_quiz_for_pdf(pdf_path, title, count=5):
+    text = extract_pdf_text(pdf_path)
+    if not text or len(text.strip()) < 50:
+        text = f"Study document titled {title}."
+
+    prompt = f'''Generate exactly {count} multiple-choice quiz questions based on the document below.
+Requirements:
+1. Distribute questions evenly across the ENTIRE document from the first section to the final section.
+2. 4 choices per question (options).
+3. Set answer to index (0, 1, 2, or 3) of correct option.
+4. Keep explanation to 1 concise sentence.
+5. Return ONLY a valid JSON list of {count} objects.
+
+DOCUMENT:
+{text}
+
+JSON FORMAT:
+[
+  {{
+    "question": "Question text",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "answer": 0,
+    "explanation": "Brief 1-sentence reason."
+  }}
+]'''
+
+    raw = call_gemini(prompt, response_mime="application/json", timeout=30)
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                return parsed
+        except Exception:
+            pass
+    return None
 
 # Pure monochrome minimalist single page template
 SPA_HTML = '''<!DOCTYPE html>
@@ -359,6 +494,7 @@ SPA_HTML = '''<!DOCTYPE html>
                         <td>{{ b.page_count }}</td>
                         <td style="white-space: nowrap;">
                             <button onclick="openBook({{ b.id }})" class="btn" style="padding: 6px 12px;">Open</button>
+                            <a href="/quiz/{{ b.id }}" class="btn" style="padding: 6px 10px; margin-left: 4px;">Quiz</a>
                             <form action="/delete/{{ b.id }}" method="post" style="display: inline; margin-left: 4px;" onsubmit="return confirm('Delete this PDF?');">
                                 <input type="submit" value="Del" class="btn btn-light" style="padding: 6px 8px;">
                             </form>
@@ -383,12 +519,37 @@ SPA_HTML = '''<!DOCTYPE html>
                 <option value="{{ b.id }}">{{ b.title }} ({{ b.page_count }}p)</option>
                 {% endfor %}
             </select>
-            <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 10px; font-size: 13px; font-weight: normal; color: #cccccc !important;">Save All</a>
+            <a href="javascript:void(0)" onclick="goToQuiz()" class="nav-btn" style="margin-left: 6px;">Quiz</a>
+            <a href="javascript:void(0)" onclick="startOfflineCacheAll()" class="nav-btn" id="readerCacheBtn" style="margin-left: 6px; font-size: 13px; font-weight: normal; color: #cccccc !important;">Save All</a>
             <span class="page-badge" id="pageDisplay">1 / 1</span>
         </div>
         <div id="cacheStatus"></div>
 
         <div id="pageArea"></div>
+
+        <!-- Minimalist Chat Floating Button & Drawer -->
+        <div id="chatFloatBtn" onclick="toggleChat()" style="position: fixed; bottom: 20px; right: 20px; width: 44px; height: 44px; line-height: 42px; text-align: center; background: #000000; color: #ffffff; border: 2px solid #ffffff; border-radius: 22px; font-size: 20px; font-weight: bold; cursor: pointer; z-index: 999; -webkit-box-shadow: 0 0 6px rgba(255,255,255,0.4); box-shadow: 0 0 6px rgba(255,255,255,0.4);">?</div>
+
+        <div id="chatModal" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; max-height: 55%; background: #000000; border-top: 2px solid #ffffff; z-index: 1000; color: #ffffff; padding: 10px 12px; font-family: -apple-system, Helvetica, Arial, sans-serif;">
+            <div style="overflow: hidden; padding-bottom: 6px; border-bottom: 1px solid #333333; margin-bottom: 8px;">
+                <span style="font-size: 14px; font-weight: bold; letter-spacing: 1px;">DOCUMENT CHAT</span>
+                <span onclick="toggleChat()" style="float: right; cursor: pointer; font-size: 16px; padding: 0 6px; font-weight: bold; border: 1px solid #555555; background: #222222;">&times;</span>
+                <span onclick="clearChatHistory()" style="float: right; cursor: pointer; font-size: 12px; padding: 2px 6px; margin-right: 8px; border: 1px solid #555555; background: #222222;">Clear</span>
+            </div>
+            <div id="chatMessages" style="max-height: 180px; overflow-y: auto; -webkit-overflow-scrolling: touch; font-size: 13px; line-height: 1.4; margin-bottom: 8px; border: 1px solid #222222; padding: 6px; background: #111111;">
+                <div style="color: #888888; font-style: italic;">Ask any question about this document.</div>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; border-spacing: 0;">
+                <tr>
+                    <td style="padding: 0 6px 0 0;">
+                        <input type="text" id="chatInput" placeholder="Ask a question..." onkeydown="if(event.keyCode===13)sendChatMessage();" style="width: 100%; box-sizing: border-box; background: #222222; color: #ffffff; border: 1px solid #666666; padding: 8px; font-size: 14px; border-radius: 3px; -webkit-appearance: none;">
+                    </td>
+                    <td style="width: 60px; padding: 0;">
+                        <button id="chatSendBtn" onclick="sendChatMessage()" style="width: 100%; background: #ffffff; color: #000000; font-weight: bold; border: none; padding: 8px 0; font-size: 14px; border-radius: 3px; cursor: pointer;">Ask</button>
+                    </td>
+                </tr>
+            </table>
+        </div>
     </div>
 
 
@@ -447,11 +608,103 @@ SPA_HTML = '''<!DOCTYPE html>
         try {
             localStorage.removeItem('ipad_active_book');
         } catch(e) {}
+        var modal = document.getElementById('chatModal');
+        if (modal) modal.style.display = 'none';
         document.body.style.backgroundColor = '#ffffff';
         document.getElementById('pageArea').innerHTML = '';
         document.getElementById('readerView').style.display = 'none';
         document.getElementById('libraryView').style.display = 'block';
         window.scrollTo(0, 0);
+    }
+
+    function toggleChat() {
+        var modal = document.getElementById('chatModal');
+        if (!modal) return;
+        if (modal.style.display === 'none' || modal.style.display === '') {
+            modal.style.display = 'block';
+            var inp = document.getElementById('chatInput');
+            if (inp) inp.focus();
+        } else {
+            modal.style.display = 'none';
+        }
+    }
+
+    function clearChatHistory() {
+        var box = document.getElementById('chatMessages');
+        if (box) {
+            box.innerHTML = '<div style="color: #888888; font-style: italic;">Ask any question about this document.</div>';
+        }
+    }
+
+    function sendChatMessage() {
+        var inp = document.getElementById('chatInput');
+        var btn = document.getElementById('chatSendBtn');
+        var box = document.getElementById('chatMessages');
+        if (!inp || !box || !currentBook) return;
+        var q = inp.value.trim ? inp.value.trim() : inp.value.replace(/^\s+|\s+$/g, '');
+        if (!q) return;
+
+        var userDiv = document.createElement('div');
+        userDiv.style.margin = '4px 0';
+        userDiv.style.textAlign = 'right';
+        userDiv.innerHTML = '<span style="display: inline-block; background: #333333; color: #ffffff; padding: 4px 8px; border-radius: 4px; max-width: 85%; text-align: left; word-wrap: break-word;">' + q.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+        box.appendChild(userDiv);
+
+        inp.value = '';
+        inp.disabled = true;
+        if (btn) btn.disabled = true;
+
+        var statusDiv = document.createElement('div');
+        statusDiv.style.margin = '4px 0';
+        statusDiv.style.color = '#aaaaaa';
+        statusDiv.style.fontStyle = 'italic';
+        statusDiv.innerText = 'Thinking...';
+        box.appendChild(statusDiv);
+        box.scrollTop = box.scrollHeight;
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/chat/' + currentBook.id, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                inp.disabled = false;
+                if (btn) btn.disabled = false;
+                if (statusDiv && statusDiv.parentNode) {
+                    statusDiv.parentNode.removeChild(statusDiv);
+                }
+                var ans = 'Error: could not get an answer.';
+                if (xhr.status === 200) {
+                    try {
+                        var res = JSON.parse(xhr.responseText);
+                        if (res.answer) ans = res.answer;
+                        else if (res.error) ans = 'Error: ' + res.error;
+                    } catch(e) {
+                        ans = xhr.responseText || 'Error parsing response.';
+                    }
+                } else {
+                    try {
+                        var errRes = JSON.parse(xhr.responseText);
+                        if (errRes.error) ans = 'Error: ' + errRes.error;
+                    } catch(e) {}
+                }
+
+                var botDiv = document.createElement('div');
+                botDiv.style.margin = '4px 0';
+                botDiv.style.textAlign = 'left';
+                var cleanAns = ans.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').split(String.fromCharCode(10)).join('<br>');
+                botDiv.innerHTML = '<span style="display: inline-block; background: #000000; border: 1px solid #444444; color: #ffffff; padding: 4px 8px; border-radius: 4px; max-width: 90%; text-align: left; word-wrap: break-word;">' + cleanAns + '</span>';
+                box.appendChild(botDiv);
+                box.scrollTop = box.scrollHeight;
+                inp.focus();
+            }
+        };
+        xhr.send(JSON.stringify({ question: q }));
+    }
+
+    function goToQuiz() {
+        if (currentBook) {
+            window.location.href = '/quiz/' + currentBook.id;
+        }
     }
 
     function renderContinuousPages(targetPage) {
@@ -709,9 +962,386 @@ def delete_book(book_id):
                 pass
 
         with conn:
+            conn.execute('DELETE FROM quizzes WHERE book_id = ?', (book_id,))
             conn.execute('DELETE FROM books WHERE id = ?', (book_id,))
     conn.close()
     return redirect(url_for('index'))
+
+QUIZ_HTML = '''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <title>Quiz - {{ book.title }}</title>
+    <style>
+    * {
+        -webkit-box-sizing: border-box;
+        box-sizing: border-box;
+        border-radius: 0 !important;
+    }
+    body, html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        min-height: 100%;
+        font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+        background-color: #ffffff;
+        color: #000000;
+        -webkit-overflow-scrolling: touch;
+        overflow-x: hidden;
+    }
+    .container {
+        padding: 14px;
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    .header-box {
+        background: #ffffff;
+        border: 1px solid #000000;
+        padding: 12px;
+        margin-bottom: 12px;
+        overflow: hidden;
+    }
+    .btn {
+        display: inline-block;
+        background: #000000;
+        color: #ffffff !important;
+        border: 1px solid #000000;
+        padding: 8px 14px;
+        font-size: 14px;
+        font-weight: bold;
+        cursor: pointer;
+        text-align: center;
+        text-decoration: none;
+        -webkit-appearance: none;
+        margin-right: 4px;
+    }
+    .btn-light {
+        background: #ffffff;
+        color: #000000 !important;
+        border: 1px solid #000000;
+    }
+    .btn-active {
+        background: #000000 !important;
+        color: #ffffff !important;
+        border: 1px solid #000000;
+    }
+    .count-bar {
+        background: #f4f4f4;
+        border: 1px solid #000000;
+        padding: 8px 10px;
+        margin-bottom: 14px;
+        overflow: hidden;
+        font-size: 13px;
+        font-weight: bold;
+        line-height: 28px;
+    }
+    .box {
+        background: #ffffff;
+        border: 1px solid #000000;
+        padding: 14px;
+        margin-bottom: 14px;
+    }
+    .box-title {
+        font-size: 15px;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin: 0 0 10px 0;
+        border-bottom: 1px solid #cccccc;
+        padding-bottom: 6px;
+    }
+    .quiz-q-box {
+        border: 1px solid #000000;
+        padding: 12px;
+        margin-bottom: 14px;
+        background: #ffffff;
+    }
+    .quiz-q-title {
+        font-weight: bold;
+        font-size: 15px;
+        line-height: 1.4;
+        margin-bottom: 10px;
+    }
+    .quiz-opt {
+        display: block;
+        padding: 10px 12px;
+        border: 1px solid #cccccc;
+        margin-bottom: 8px;
+        font-size: 14px;
+        cursor: pointer;
+        background: #ffffff;
+        text-align: left;
+        line-height: 1.35;
+    }
+    .quiz-opt.selected {
+        border: 2px solid #000000;
+        background: #f0f0f0;
+        font-weight: bold;
+    }
+    .quiz-opt.correct {
+        border: 2px solid #000000;
+        background: #000000 !important;
+        color: #ffffff !important;
+        font-weight: bold;
+    }
+    .quiz-opt.incorrect {
+        border: 1px solid #999999;
+        color: #777777;
+        text-decoration: line-through;
+    }
+    .explanation-box {
+        display: none;
+        margin-top: 8px;
+        padding: 8px 10px;
+        background: #f2f2f2;
+        border-left: 3px solid #000000;
+        font-size: 13px;
+        line-height: 1.35;
+    }
+    .score-banner {
+        display: none;
+        border: 2px solid #000000;
+        background: #f0f0f0;
+        padding: 14px;
+        margin-bottom: 14px;
+        text-align: center;
+        font-size: 16px;
+        font-weight: bold;
+    }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header-box">
+        <a href="/" class="btn btn-light" style="float: left;">&larr; Library</a>
+        <a href="/quiz/{{ book.id }}?count={{ active_count }}&regenerate=1" class="btn" style="float: right;" onclick="this.innerHTML='Generating...';">&#8635; Regenerate</a>
+        <div style="margin-left: 95px; margin-right: 125px; line-height: 32px; font-weight: bold; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            {{ book.title }}
+        </div>
+    </div>
+
+    <!-- Question Count Selector -->
+    <div class="count-bar">
+        <span style="float: left; margin-right: 6px;">Questions:</span>
+        <a href="/quiz/{{ book.id }}?count=5" class="btn {% if active_count == 5 %}btn-active{% else %}btn-light{% endif %}" style="padding: 3px 8px; font-size: 13px;">5 Qs</a>
+        <a href="/quiz/{{ book.id }}?count=10" class="btn {% if active_count == 10 %}btn-active{% else %}btn-light{% endif %}" style="padding: 3px 8px; font-size: 13px;">10 Qs</a>
+        <a href="/quiz/{{ book.id }}?count=15" class="btn {% if active_count == 15 %}btn-active{% else %}btn-light{% endif %}" style="padding: 3px 8px; font-size: 13px;">15 Qs</a>
+        <a href="/quiz/{{ book.id }}?count=20" class="btn {% if active_count == 20 %}btn-active{% else %}btn-light{% endif %}" style="padding: 3px 8px; font-size: 13px;">20 Qs</a>
+        <span style="float: right; color: #555555; font-size: 12px; font-weight: normal;">Full PDF Covered</span>
+    </div>
+
+    {% if quiz_items %}
+    <div class="score-banner" id="scoreBanner"></div>
+
+    <div id="quizList">
+        {% for item in quiz_items %}
+        {% set q_idx = loop.index0 %}
+        <div class="quiz-q-box" id="qBox_{{ q_idx }}">
+            <div class="quiz-q-title">{{ loop.index }}. {{ item.question }}</div>
+            {% for opt in item.options %}
+            {% set o_idx = loop.index0 %}
+            <div class="quiz-opt" id="opt_{{ q_idx }}_{{ o_idx }}" onclick="selectOption({{ q_idx }}, {{ o_idx }})">
+                <strong>{{ ['A', 'B', 'C', 'D'][o_idx] }}.</strong> {{ opt }}
+            </div>
+            {% endfor %}
+            <div class="explanation-box" id="expl_{{ q_idx }}">
+                <strong>Explanation:</strong> {{ item.explanation }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div style="margin-top: 14px; text-align: center; padding-bottom: 30px;">
+        <button onclick="checkAnswers()" id="checkBtn" class="btn" style="padding: 10px 24px; font-size: 15px;">Check Answers</button>
+        <button onclick="resetQuiz()" id="resetBtn" class="btn btn-light" style="display: none; padding: 10px 24px; font-size: 15px; margin-left: 8px;">Try Again</button>
+    </div>
+
+    {% else %}
+    <div class="box" style="text-align: center; padding: 30px;">
+        <div class="box-title" style="border: none;">Quiz Generation Failed</div>
+        <p style="color: #444444; margin-bottom: 20px;">Could not generate questions. Ensure the laptop server has internet access to reach the AI service.</p>
+        <a href="/quiz/{{ book.id }}?count={{ active_count }}&regenerate=1" class="btn">&#8635; Retry Generation</a>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+var quizData = {{ quiz_json|safe }};
+var userAnswers = {};
+var isSubmitted = false;
+
+function selectOption(qIdx, optIdx) {
+    if (isSubmitted) return;
+    userAnswers[qIdx] = optIdx;
+    var item = quizData[qIdx];
+    for (var i = 0; i < item.options.length; i++) {
+        var el = document.getElementById('opt_' + qIdx + '_' + i);
+        if (el) {
+            if (i === optIdx) {
+                el.className = 'quiz-opt selected';
+            } else {
+                el.className = 'quiz-opt';
+            }
+        }
+    }
+}
+
+function checkAnswers() {
+    if (!quizData || quizData.length === 0) return;
+    isSubmitted = true;
+    var correctCount = 0;
+
+    for (var q = 0; q < quizData.length; q++) {
+        var item = quizData[q];
+        var chosen = userAnswers[q];
+        var correct = item.answer;
+
+        if (chosen === correct) {
+            correctCount++;
+        }
+
+        for (var o = 0; o < item.options.length; o++) {
+            var el = document.getElementById('opt_' + q + '_' + o);
+            if (!el) continue;
+            if (o === correct) {
+                el.className = 'quiz-opt correct';
+            } else if (o === chosen) {
+                el.className = 'quiz-opt incorrect';
+            } else {
+                el.className = 'quiz-opt';
+            }
+        }
+
+        var expl = document.getElementById('expl_' + q);
+        if (expl) expl.style.display = 'block';
+    }
+
+    var banner = document.getElementById('scoreBanner');
+    var pct = Math.round((correctCount / quizData.length) * 100);
+    banner.innerText = 'SCORE: ' + correctCount + ' / ' + quizData.length + ' (' + pct + '%)';
+    banner.style.display = 'block';
+
+    document.getElementById('checkBtn').style.display = 'none';
+    document.getElementById('resetBtn').style.display = 'inline-block';
+    window.scrollTo(0, 0);
+}
+
+function resetQuiz() {
+    isSubmitted = false;
+    userAnswers = {};
+    for (var q = 0; q < quizData.length; q++) {
+        var item = quizData[q];
+        for (var o = 0; o < item.options.length; o++) {
+            var el = document.getElementById('opt_' + q + '_' + o);
+            if (el) el.className = 'quiz-opt';
+        }
+        var expl = document.getElementById('expl_' + q);
+        if (expl) expl.style.display = 'none';
+    }
+    document.getElementById('scoreBanner').style.display = 'none';
+    document.getElementById('checkBtn').style.display = 'inline-block';
+    document.getElementById('resetBtn').style.display = 'none';
+}
+</script>
+</body>
+</html>'''
+
+@app.route('/quiz/<int:book_id>')
+def quiz_view(book_id):
+    conn = get_db()
+    book = conn.execute('SELECT * FROM books WHERE id = ?', (book_id,)).fetchone()
+    if not book:
+        conn.close()
+        abort(404)
+
+    try:
+        count = int(request.args.get('count', 5))
+        if count not in [5, 10, 15, 20]:
+            count = 5
+    except Exception:
+        count = 5
+
+    regenerate = request.args.get('regenerate') == '1'
+    quiz_row = conn.execute(
+        'SELECT * FROM quizzes WHERE book_id = ? AND q_count = ?',
+        (book_id, count)
+    ).fetchone()
+    quiz_items = None
+
+    if quiz_row and not regenerate:
+        try:
+            quiz_items = json.loads(quiz_row['quiz_data'])
+        except Exception:
+            quiz_items = None
+
+    if not quiz_items:
+        pdf_path = UPLOADS_DIR / book['filename']
+        if pdf_path.exists():
+            quiz_items = generate_quiz_for_pdf(pdf_path, book['title'], count=count)
+            if quiz_items:
+                quiz_json = json.dumps(quiz_items)
+                with conn:
+                    conn.execute(
+                        'INSERT OR REPLACE INTO quizzes (book_id, q_count, quiz_data) VALUES (?, ?, ?)',
+                        (book_id, count, quiz_json)
+                    )
+
+    conn.close()
+
+    return render_template_string(
+        QUIZ_HTML,
+        book=book,
+        active_count=count,
+        quiz_items=quiz_items,
+        quiz_json=json.dumps(quiz_items if quiz_items else [])
+    )
+
+@app.route('/chat/<int:book_id>', methods=['POST'])
+def chat_book(book_id):
+    conn = get_db()
+    book = conn.execute('SELECT * FROM books WHERE id = ?', (book_id,)).fetchone()
+    conn.close()
+
+    if not book:
+        return jsonify({'error': 'Book not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+    question = (data.get('question') or '').strip()
+    if not question:
+        return jsonify({'error': 'Question cannot be empty'}), 400
+
+    pdf_path = UPLOADS_DIR / book['filename']
+    if not pdf_path.exists():
+        return jsonify({'error': 'PDF file not found on server'}), 404
+
+    doc_text = extract_pdf_text(pdf_path)
+    if not doc_text:
+        return jsonify({'error': 'Could not extract text from document'}), 500
+
+    # Limit text context to avoid exceeding token limit or latency
+    context_text = doc_text[:120000]
+
+    prompt = (
+        f"You are a helpful study assistant for the document titled '{book['title']}'.\n"
+        f"Below is the full text of the document:\n"
+        f"---\n{context_text}\n---\n\n"
+        f"User question: {question}\n\n"
+        f"Instructions:\n"
+        f"- Answer the question accurately based directly on the provided document.\n"
+        f"- Keep your answer concise, direct, and easy to read on a mobile screen.\n"
+        f"- Do NOT use markdown symbols like asterisks, hashtags, or markdown bolding. Use clean plain text."
+    )
+
+    answer = call_gemini(prompt, timeout=25)
+    if not answer:
+        return jsonify({'error': 'AI failed to generate a response. Please check connection or try again.'}), 502
+
+    # Clean any accidental markdown stars/hashes
+    clean_answer = answer.replace('*', '').replace('#', '').strip()
+    return jsonify({'answer': clean_answer})
 
 @app.route('/offline.appcache')
 def offline_manifest():
