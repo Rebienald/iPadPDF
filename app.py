@@ -846,10 +846,34 @@ SPA_HTML = '''<!DOCTYPE html>
         }
     }
 
+    function checkAndLoadVisiblePages() {
+        if (!currentBook) return;
+        var wraps = document.getElementsByClassName('pdf-page-container');
+        var container = document.getElementById('pageArea');
+        var scrollY = container ? container.scrollTop : (window.pageYOffset || 0);
+        var viewH = container ? container.clientHeight : (window.innerHeight || 768);
+        var buffer = viewH * 2;
+        var viewTop = scrollY - buffer;
+        var viewBottom = scrollY + viewH + buffer;
+
+        for (var i = 0; i < wraps.length; i++) {
+            var wrap = wraps[i];
+            var top = wrap.offsetTop;
+            var bottom = top + wrap.offsetHeight;
+            if (bottom >= viewTop && top <= viewBottom) {
+                var img = wrap.getElementsByTagName('img')[0];
+                if (img && !img.src && img.getAttribute('data-src')) {
+                    img.src = img.getAttribute('data-src');
+                }
+            }
+        }
+    }
+
     function renderContinuousPages(targetPage) {
         if (!currentBook) return;
         var container = document.getElementById('pageArea');
         container.innerHTML = '';
+        var initialTarget = targetPage || 1;
 
         for (var p = 1; p <= currentBook.page_count; p++) {
             var wrap = document.createElement('div');
@@ -860,25 +884,32 @@ SPA_HTML = '''<!DOCTYPE html>
             img.className = 'pdf-page';
             img.id = 'pageImg_' + p;
             img.alt = 'Page ' + p;
-            img.src = '/page/' + currentBook.id + '/' + p + '?v=3';
+            var pageUrl = '/page/' + currentBook.id + '/' + p + '?v=3';
+            img.setAttribute('data-src', pageUrl);
+
+            if (Math.abs(p - initialTarget) <= 2) {
+                img.src = pageUrl;
+            }
 
             wrap.appendChild(img);
             container.appendChild(wrap);
         }
 
-        updatePageDisplay(targetPage || 1);
+        updatePageDisplay(initialTarget);
 
-        if (targetPage && targetPage > 1) {
+        if (initialTarget > 1) {
             setTimeout(function() {
-                var el = document.getElementById('pageWrap_' + targetPage);
+                var el = document.getElementById('pageWrap_' + initialTarget);
                 var container = document.getElementById('pageArea');
                 if (el && container) {
                     container.scrollTop = el.offsetTop;
                 }
+                checkAndLoadVisiblePages();
             }, 60);
         } else {
             var container = document.getElementById('pageArea');
             if (container) container.scrollTop = 0;
+            checkAndLoadVisiblePages();
         }
     }
 
@@ -900,6 +931,7 @@ SPA_HTML = '''<!DOCTYPE html>
         if (scrollTimer) return;
         scrollTimer = setTimeout(function() {
             scrollTimer = null;
+            checkAndLoadVisiblePages();
             var wraps = document.getElementsByClassName('pdf-page-container');
             var container = document.getElementById('pageArea');
             var scrollY = container ? container.scrollTop : (window.pageYOffset || 0);
