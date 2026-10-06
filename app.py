@@ -208,18 +208,29 @@ sync_uploaded_files_to_db()
 def sync_git_repo(commit_message):
     try:
         token = os.environ.get('GITHUB_TOKEN', '').strip()
-        if token:
-            subprocess.run(['git', 'config', 'user.email', 'ipadpdf@noreply.github.com'], cwd=str(BASE_DIR), capture_output=True)
-            subprocess.run(['git', 'config', 'user.name', 'iPadPDF Server'], cwd=str(BASE_DIR), capture_output=True)
-            remote_url = f"https://oauth2:{token}@github.com/Rebienald/iPadPDF.git"
-            subprocess.run(['git', 'remote', 'set-url', 'origin', remote_url], cwd=str(BASE_DIR), capture_output=True)
+        if not token:
+            app.logger.warning("Git auto-sync skipped: GITHUB_TOKEN not configured")
+            return
+
+        subprocess.run(['git', 'config', 'user.email', 'ipadpdf@noreply.github.com'], cwd=str(BASE_DIR), capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'iPadPDF Server'], cwd=str(BASE_DIR), capture_output=True)
+        remote_url = f"https://oauth2:{token}@github.com/Rebienald/iPadPDF.git"
+        subprocess.run(['git', 'remote', 'set-url', 'origin', remote_url], cwd=str(BASE_DIR), capture_output=True)
 
         subprocess.run(['git', 'add', '-A', 'uploads', 'data'], cwd=str(BASE_DIR), capture_output=True)
         diff_check = subprocess.run(['git', 'diff', '--staged', '--name-only'], cwd=str(BASE_DIR), capture_output=True, text=True)
         if diff_check.stdout.strip():
-            subprocess.run(['git', 'commit', '-m', f"Auto-sync: {commit_message} [skip render]"], cwd=str(BASE_DIR), capture_output=True)
-            subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(BASE_DIR), capture_output=True)
-            app.logger.info(f"Auto-sync pushed to GitHub: {commit_message}")
+            c_res = subprocess.run(['git', 'commit', '-m', f"Auto-sync: {commit_message} [skip render]"], cwd=str(BASE_DIR), capture_output=True, text=True)
+            p_res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(BASE_DIR), capture_output=True, text=True)
+            if p_res.returncode == 0:
+                app.logger.info(f"Auto-sync pushed to GitHub: {commit_message}")
+            else:
+                subprocess.run(['git', 'pull', '--rebase', 'origin', 'main'], cwd=str(BASE_DIR), capture_output=True)
+                p2_res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(BASE_DIR), capture_output=True, text=True)
+                if p2_res.returncode == 0:
+                    app.logger.info(f"Auto-sync pushed to GitHub after pull: {commit_message}")
+                else:
+                    app.logger.error(f"Git push failed: {p2_res.stderr or p_res.stderr}")
     except Exception as e:
         app.logger.error(f"Git auto-sync error: {e}")
 
