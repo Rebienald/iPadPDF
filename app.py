@@ -205,39 +205,125 @@ def sync_uploaded_files_to_db():
 
 sync_uploaded_files_to_db()
 
-def sync_git_repo(commit_message):
+# ==================== SUPABASE CLOUD SYNC & STORAGE ====================
+SUPABASE_URL = os.environ.get('SUPABASE_URL', '').strip().rstrip('/')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '').strip()
+
+def supabase_request(endpoint, method='GET', data=None, headers=None):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+    url = f"{SUPABASE_URL}{endpoint}"
+    req_headers = {
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'apikey': SUPABASE_KEY
+    }
+    if headers:
+        req_headers.update(headers)
+    req_data = None
+    if data is not None:
+        if isinstance(data, (dict, list)):
+            req_data = json.dumps(data).encode('utf-8')
+            req_headers['Content-Type'] = 'application/json'
+        elif isinstance(data, (bytes, bytearray)):
+            req_data = data
+    req = urllib.request.Request(url, data=req_data, headers=req_headers, method=method)
     try:
-        token = os.environ.get('GITHUB_TOKEN', '').strip()
-        if not token:
-            app.logger.warning("Git auto-sync skipped: GITHUB_TOKEN not configured")
-            return
-
-        subprocess.run(['git', 'config', 'user.email', 'ipadpdf@noreply.github.com'], cwd=str(BASE_DIR), capture_output=True)
-        subprocess.run(['git', 'config', 'user.name', 'iPadPDF Server'], cwd=str(BASE_DIR), capture_output=True)
-        remote_url = f"https://oauth2:{token}@github.com/Rebienald/iPadPDF.git"
-        subprocess.run(['git', 'remote', 'set-url', 'origin', remote_url], cwd=str(BASE_DIR), capture_output=True)
-
-        subprocess.run(['git', 'add', '-A', 'uploads', 'data'], cwd=str(BASE_DIR), capture_output=True)
-        diff_check = subprocess.run(['git', 'diff', '--staged', '--name-only'], cwd=str(BASE_DIR), capture_output=True, text=True)
-        if diff_check.stdout.strip():
-            c_res = subprocess.run(['git', 'commit', '-m', f"Auto-sync: {commit_message} [skip render]"], cwd=str(BASE_DIR), capture_output=True, text=True)
-            p_res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(BASE_DIR), capture_output=True, text=True)
-            if p_res.returncode == 0:
-                app.logger.info(f"Auto-sync pushed to GitHub: {commit_message}")
-            else:
-                subprocess.run(['git', 'pull', '--rebase', 'origin', 'main'], cwd=str(BASE_DIR), capture_output=True)
-                p2_res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(BASE_DIR), capture_output=True, text=True)
-                if p2_res.returncode == 0:
-                    app.logger.info(f"Auto-sync pushed to GitHub after pull: {commit_message}")
-                else:
-                    app.logger.error(f"Git push failed: {p2_res.stderr or p_res.stderr}")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read()
+            return body.decode('utf-8') if body else ''
     except Exception as e:
-        app.logger.error(f"Git auto-sync error: {e}")
+        app.logger.error(f"Supabase request failed {method} {url}: {e}")
+        return None
 
-def trigger_git_sync(commit_message):
-    t = threading.Thread(target=sync_git_repo, args=(commit_message,))
-    t.daemon = True
-    t.start()
+def supabase_upload_file(filename, file_path_or_bytes, content_type='application/pdf'):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return False
+    data = file_path_or_bytes
+    if isinstance(file_path_or_bytes, (str, Path)):
+        p = Path(file_path_or_bytes)
+        if not p.exists():
+            return False
+        with open(p, 'rb') as f:
+            data = f.read()
+    headers = {
+        'Content-Type': content_type,
+        'x-upsert': 'true'
+    }
+    res = supabase_request(f'/storage/v1/object/pdfs/{filename}', method='POST', data=data, headers=headers)
+    return res is not None
+
+def supabase_delete_file(filename):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return False
+    res = supabase_request('/storage/v1/object/pdfs', method='DELETE', data={'prefixes': [filename]})
+    return res is not None
+
+def supabase_sync_book_insert(book_dict):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    supabase_request('/rest/v1/books', method='POST', data=[book_dict], headers={'Prefer': 'return=minimal'})
+
+def supabase_sync_book_delete(filename):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    supabase_request(f'/rest/v1/books?filename=eq.{urllib.parse.quote(filename)}', method='DELETE')
+    supabase_delete_file(filename)
+
+def supabase_sync_bookmark(filename, page_num):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    supabase_request(f'/rest/v1/books?filename=eq.{urllib.parse.quote(filename)}', method='PATCH', data={'current_page': page_num})
+
+def supabase_pull_library():
+    """Initial pull from Supabase to local SQLite so both match perfectly."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    try:
+        raw = supabase_request('/rest/v1/books?select=*&order=created_at.desc')
+        if not raw:
+            return
+        cloud_books = json.loads(raw)
+        conn = get_db()
+        local_files = {row['filename'] for row in conn.execute('SELECT filename FROM books').fetchall()}
+        with conn:
+            for b in cloud_books:
+                if b['filename'] not in local_files:
+                    conn.execute('''
+                        INSERT INTO books (title, filename, page_count, filesize, current_page, is_image)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (b['title'], b['filename'], b.get('page_count', 1), b.get('filesize', 0), b.get('current_page', 1), b.get('is_image', 0)))
+                else:
+                    # Update bookmark from cloud if present
+                    conn.execute('UPDATE books SET current_page = ? WHERE filename = ?', (b.get('current_page', 1), b['filename']))
+        conn.close()
+        app.logger.info("Pulled library metadata from Supabase")
+    except Exception as e:
+        app.logger.error(f"Error pulling library from Supabase: {e}")
+
+supabase_pull_library()
+
+def ensure_pdf_file(filename):
+    """Ensure the PDF exists locally; download on-demand from Supabase if missing."""
+    local_path = UPLOADS_DIR / filename
+    if local_path.exists() and local_path.stat().st_size > 0:
+        return local_path
+    if not SUPABASE_URL:
+        return local_path
+
+    # Try downloading from Supabase storage
+    dl_url = f"{SUPABASE_URL}/storage/v1/object/public/pdfs/{urllib.parse.quote(filename)}"
+    try:
+        req = urllib.request.Request(dl_url)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            content = resp.read()
+            if content:
+                with open(local_path, 'wb') as f:
+                    f.write(content)
+                app.logger.info(f"Downloaded {filename} from Supabase Storage")
+                return local_path
+    except Exception as e:
+        app.logger.error(f"Failed to fetch {filename} from Supabase: {e}")
+    return local_path
 
 # ==================== AI ENGINE (GEMINI WITH ROTATION & BACKUPS) ====================
 def get_api_keys():
@@ -1110,6 +1196,19 @@ def upload():
         conn.commit()
         titles_uploaded.append(clean_title)
 
+        # Sync to Supabase Storage & Database
+        def sync_to_supabase(fn=safe_filename, sp=save_path, ct=clean_title, pc=page_count, fs=filesize, img=is_img_flag):
+            supabase_upload_file(fn, sp)
+            supabase_sync_book_insert({
+                'title': ct,
+                'filename': fn,
+                'page_count': pc,
+                'filesize': fs,
+                'current_page': 1,
+                'is_image': img
+            })
+        threading.Thread(target=sync_to_supabase, daemon=True).start()
+
         # Pre-render page 1: color for images, grayscale for PDFs
         def prerender(p=save_path, b_id=book_id, p_count=page_count, is_c=is_image):
             render_page_to_jpeg(p, 1, CACHE_DIR / f"{b_id}_p1.jpg", grayscale=(not is_c))
@@ -1118,9 +1217,6 @@ def upload():
         threading.Thread(target=prerender, daemon=True).start()
 
     conn.close()
-
-    if titles_uploaded:
-        trigger_git_sync(f"Upload {', '.join(titles_uploaded[:3])}")
 
     return redirect(url_for('index'))
 
@@ -1134,7 +1230,7 @@ def get_page(book_id, page_num):
 
     cache_file = CACHE_DIR / f"{book_id}_p{page_num}.jpg"
     if not cache_file.exists():
-        pdf_path = UPLOADS_DIR / book['filename']
+        pdf_path = ensure_pdf_file(book['filename'])
         if not pdf_path.exists():
             abort(404)
         is_img = False
@@ -1158,18 +1254,21 @@ def get_page(book_id, page_num):
 @app.route('/bookmark/<int:book_id>/<int:page_num>')
 def bookmark(book_id, page_num):
     conn = get_db()
+    book = conn.execute('SELECT filename FROM books WHERE id = ?', (book_id,)).fetchone()
     with conn:
         conn.execute('UPDATE books SET current_page = ? WHERE id = ?', (page_num, book_id))
     conn.close()
+    if book:
+        threading.Thread(target=supabase_sync_bookmark, args=(book['filename'], page_num), daemon=True).start()
     return ('', 204)
 
 @app.route('/delete/<int:book_id>', methods=['POST'])
 def delete_book(book_id):
     conn = get_db()
     book = conn.execute('SELECT * FROM books WHERE id = ?', (book_id,)).fetchone()
-    book_title = book['title'] if book else ''
     if book:
-        pdf_path = UPLOADS_DIR / book['filename']
+        filename = book['filename']
+        pdf_path = UPLOADS_DIR / filename
         if pdf_path.exists():
             try:
                 pdf_path.unlink()
@@ -1185,10 +1284,9 @@ def delete_book(book_id):
         with conn:
             conn.execute('DELETE FROM quizzes WHERE book_id = ?', (book_id,))
             conn.execute('DELETE FROM books WHERE id = ?', (book_id,))
-    conn.close()
 
-    if book_title:
-        trigger_git_sync(f"Delete {book_title}")
+        threading.Thread(target=supabase_sync_book_delete, args=(filename,), daemon=True).start()
+    conn.close()
 
     return redirect(url_for('index'))
 
@@ -1543,7 +1641,7 @@ def quiz_view(book_id):
             quiz_items = None
 
     if not quiz_items:
-        pdf_path = UPLOADS_DIR / book['filename']
+        pdf_path = ensure_pdf_file(book['filename'])
         if pdf_path.exists():
             quiz_items = generate_quiz_for_pdf(
                 pdf_path,
@@ -1587,7 +1685,7 @@ def chat_book(book_id):
     if not question:
         return jsonify({'error': 'Question cannot be empty'}), 400
 
-    pdf_path = UPLOADS_DIR / book['filename']
+    pdf_path = ensure_pdf_file(book['filename'])
     if not pdf_path.exists():
         return jsonify({'error': 'PDF file not found on server'}), 404
 
