@@ -557,9 +557,9 @@ SPA_HTML = '''<!DOCTYPE html>
         </div>
 
         <div class="box">
-            <div class="box-title">Upload Document</div>
+            <div class="box-title">Upload Document or Image</div>
             <form action="/upload" method="post" enctype="multipart/form-data">
-                <input type="file" name="pdf_file" accept=".pdf,application/pdf" required>
+                <input type="file" name="pdf_file" accept=".pdf,application/pdf,image/*,.jpg,.jpeg,.png,.webp,.bmp" multiple required>
                 <input type="submit" value="Upload" class="btn">
             </form>
         </div>
@@ -1033,40 +1033,69 @@ def read_book_redirect(book_id):
 
 @app.route('/upload', methods=['POST'])
 def upload():
-    if 'pdf_file' not in request.files:
+    uploaded_files = request.files.getlist('pdf_file') or request.files.getlist('file')
+    if not uploaded_files:
         return redirect(url_for('index'))
-    file = request.files['pdf_file']
-    if not file or not file.filename:
-        return redirect(url_for('index'))
-    
-    orig_name = file.filename
-    clean_title = Path(orig_name).stem.replace('_', ' ').replace('-', ' ').strip()
-    timestamp = int(time.time())
-    safe_filename = f"{timestamp}_{orig_name.replace(' ', '_')}"
-    save_path = UPLOADS_DIR / safe_filename
 
-    file.save(str(save_path))
-    filesize = save_path.stat().st_size
-    page_count = count_pages(save_path)
+    from PIL import Image, ImageOps
+    IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.tiff', '.tif'}
 
+    titles_uploaded = []
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO books (title, filename, page_count, filesize, current_page)
-        VALUES (?, ?, ?, ?, 1)
-    ''', (clean_title, safe_filename, page_count, filesize))
-    book_id = cursor.lastrowid
-    conn.commit()
+
+    for file in uploaded_files:
+        if not file or not file.filename:
+            continue
+
+        orig_name = file.filename
+        clean_stem = Path(orig_name).stem.replace('_', ' ').replace('-', ' ').strip()
+        clean_title = clean_stem if clean_stem else 'Untitled Document'
+        timestamp = int(time.time())
+        ext = Path(orig_name).suffix.lower()
+
+        is_image = ext in IMAGE_EXTS or (file.mimetype and file.mimetype.startswith('image/'))
+
+        if is_image:
+            safe_filename = f"{timestamp}_{Path(orig_name).stem.replace(' ', '_')}.pdf"
+            save_path = UPLOADS_DIR / safe_filename
+            try:
+                img = Image.open(file.stream)
+                img = ImageOps.exif_transpose(img)
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                img.save(str(save_path), 'PDF', resolution=150.0)
+            except Exception as e:
+                app.logger.error(f"Image conversion failed for {orig_name}: {e}")
+                continue
+            filesize = save_path.stat().st_size
+            page_count = 1
+        else:
+            safe_filename = f"{timestamp}_{orig_name.replace(' ', '_')}"
+            save_path = UPLOADS_DIR / safe_filename
+            file.save(str(save_path))
+            filesize = save_path.stat().st_size
+            page_count = count_pages(save_path)
+
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO books (title, filename, page_count, filesize, current_page)
+            VALUES (?, ?, ?, ?, 1)
+        ''', (clean_title, safe_filename, page_count, filesize))
+        book_id = cursor.lastrowid
+        conn.commit()
+        titles_uploaded.append(clean_title)
+
+        # Pre-render page 1 in grayscale in background so UI responds instantly
+        def prerender(p=save_path, b_id=book_id, p_count=page_count):
+            render_page_to_jpeg(p, 1, CACHE_DIR / f"{b_id}_p1.jpg")
+            if p_count > 1:
+                render_page_to_jpeg(p, 2, CACHE_DIR / f"{b_id}_p2.jpg")
+        threading.Thread(target=prerender, daemon=True).start()
+
     conn.close()
 
-    # Pre-render page 1 & 2 in background so upload redirect is instant
-    def prerender():
-        render_page_to_jpeg(save_path, 1, CACHE_DIR / f"{book_id}_p1.jpg")
-        if page_count > 1:
-            render_page_to_jpeg(save_path, 2, CACHE_DIR / f"{book_id}_p2.jpg")
-    threading.Thread(target=prerender, daemon=True).start()
-
-    trigger_git_sync(f"Upload {clean_title}")
+    if titles_uploaded:
+        trigger_git_sync(f"Upload {', '.join(titles_uploaded[:3])}")
 
     return redirect(url_for('index'))
 
