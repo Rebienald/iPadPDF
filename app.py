@@ -20,7 +20,7 @@ import json
 import gzip
 import threading
 from pathlib import Path
-from flask import Flask, request, redirect, url_for, send_file, render_template_string, abort, jsonify
+from flask import Flask, request, redirect, url_for, send_file, render_template_string, abort, jsonify, make_response
 import pypdfium2 as pdfium
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -257,14 +257,17 @@ def extract_pdf_text(pdf_path, max_chars=100000):
             pass
     return text[:max_chars]
 
-def call_gemini(prompt, response_mime="text/plain", timeout=30):
+def call_gemini(prompt, response_mime="text/plain", timeout=30, temperature=0.7):
     payload = {
-        'contents': [{'parts': [{'text': prompt}]}]
+        'contents': [{'parts': [{'text': prompt}]}],
+        'generationConfig': {
+            'temperature': temperature
+        }
     }
     if response_mime == "application/json":
-        payload['generationConfig'] = {'responseMimeType': 'application/json'}
+        payload['generationConfig']['responseMimeType'] = 'application/json'
 
-    models = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-latest']
+    models = ['gemini-3.5-flash-lite', 'gemini-flash-latest']
     api_keys = get_api_keys()
     if not api_keys:
         app.logger.warning('No Gemini API keys configured.')
@@ -287,19 +290,35 @@ def call_gemini(prompt, response_mime="text/plain", timeout=30):
                 continue
     return None
 
-def generate_quiz_for_pdf(pdf_path, title, count=5):
+def generate_quiz_for_pdf(pdf_path, title, count=5, exclude_questions=None):
     text = extract_pdf_text(pdf_path)
     if not text or len(text.strip()) < 50:
         text = f"Study document titled {title}."
 
-    prompt = f'''Generate exactly {count} multiple-choice quiz questions based on the document below.
-Requirements:
-1. Distribute questions evenly across the ENTIRE document from the first section to the final section.
-2. 4 choices per question (options).
-3. Set answer to index (0, 1, 2, or 3) of correct option.
-4. Keep explanation to 1 concise sentence.
-5. Return ONLY a valid JSON list of {count} objects.
+    import random
+    seed = random.randint(1000, 999999)
 
+    avoid_clause = ""
+    if exclude_questions and len(exclude_questions) > 0:
+        formatted_prev = "\n".join(f"- {q}" for q in exclude_questions[:30])
+        avoid_clause = f'''
+CRITICAL REQUIREMENT - DO NOT REPEAT ANY OF THESE PREVIOUS QUESTIONS:
+{formatted_prev}
+
+You MUST generate a COMPLETELY DIFFERENT set of questions testing different sections, topics, concepts, examples, or details from the document that were not covered above.
+'''
+
+    prompt = f'''Generate a brand-new, completely fresh set of exactly {count} multiple-choice quiz questions based on the document below.
+(Randomization Seed: {seed})
+
+Requirements:
+1. Every question must be original, distinct, and creative.
+2. Distribute questions evenly across different sections of the ENTIRE document.
+3. 4 choices per question (options A, B, C, D).
+4. Set answer to index (0, 1, 2, or 3) of the correct option.
+5. Keep explanation to 1 concise sentence.
+6. Return ONLY a valid JSON list of {count} objects.
+{avoid_clause}
 DOCUMENT:
 {text}
 
@@ -313,7 +332,7 @@ JSON FORMAT:
   }}
 ]'''
 
-    raw = call_gemini(prompt, response_mime="application/json", timeout=30)
+    raw = call_gemini(prompt, response_mime="application/json", timeout=35, temperature=1.0)
     if raw:
         try:
             parsed = json.loads(raw)
@@ -1277,7 +1296,7 @@ QUIZ_HTML = '''<!DOCTYPE html>
 <div class="container">
     <div class="header-box">
         <a href="/" class="btn btn-light" style="float: left;">&larr; Library</a>
-        <a href="/quiz/{{ book.id }}?count={{ active_count }}&regenerate=1" class="btn" style="float: right;" onclick="this.innerHTML='Generating...';">&#8635; Regenerate</a>
+        <a href="javascript:void(0)" onclick="regenerateQuiz()" id="regenBtn" class="btn" style="float: right;">&#8635; Regenerate</a>
         <div style="margin-left: 95px; margin-right: 125px; line-height: 32px; font-weight: bold; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
             {{ book.title }}
         </div>
@@ -1323,7 +1342,7 @@ QUIZ_HTML = '''<!DOCTYPE html>
     <div class="box" style="text-align: center; padding: 30px;">
         <div class="box-title" style="border: none;">Quiz Generation Failed</div>
         <p style="color: #444444; margin-bottom: 20px;">Could not generate questions. Ensure the laptop server has internet access to reach the AI service.</p>
-        <a href="/quiz/{{ book.id }}?count={{ active_count }}&regenerate=1" class="btn">&#8635; Retry Generation</a>
+        <a href="javascript:void(0)" onclick="regenerateQuiz()" id="retryBtn" class="btn">&#8635; Retry Generation</a>
     </div>
     {% endif %}
 </div>
@@ -1332,6 +1351,14 @@ QUIZ_HTML = '''<!DOCTYPE html>
 var quizData = {{ quiz_json|safe }};
 var userAnswers = {};
 var isSubmitted = false;
+
+function regenerateQuiz() {
+    var b1 = document.getElementById('regenBtn');
+    var b2 = document.getElementById('retryBtn');
+    if (b1) b1.innerHTML = 'Generating...';
+    if (b2) b2.innerHTML = 'Generating...';
+    window.location.href = '/quiz/{{ book.id }}?count={{ active_count }}&regenerate=1&t=' + new Date().getTime();
+}
 
 function selectOption(qIdx, optIdx) {
     if (isSubmitted) return;
@@ -1441,6 +1468,15 @@ def quiz_view(book_id):
         (book_id, count)
     ).fetchone()
     quiz_items = None
+    exclude_questions = []
+
+    if quiz_row:
+        try:
+            old_data = json.loads(quiz_row['quiz_data'])
+            if isinstance(old_data, list):
+                exclude_questions = [item.get('question', '') for item in old_data if item.get('question')]
+        except Exception:
+            pass
 
     if quiz_row and not regenerate:
         try:
@@ -1451,7 +1487,12 @@ def quiz_view(book_id):
     if not quiz_items:
         pdf_path = UPLOADS_DIR / book['filename']
         if pdf_path.exists():
-            quiz_items = generate_quiz_for_pdf(pdf_path, book['title'], count=count)
+            quiz_items = generate_quiz_for_pdf(
+                pdf_path,
+                book['title'],
+                count=count,
+                exclude_questions=exclude_questions if regenerate else None
+            )
             if quiz_items:
                 quiz_json = json.dumps(quiz_items)
                 with conn:
@@ -1462,13 +1503,17 @@ def quiz_view(book_id):
 
     conn.close()
 
-    return render_template_string(
+    response = make_response(render_template_string(
         QUIZ_HTML,
         book=book,
         active_count=count,
         quiz_items=quiz_items,
         quiz_json=json.dumps(quiz_items if quiz_items else [])
-    )
+    ))
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 @app.route('/chat/<int:book_id>', methods=['POST'])
 def chat_book(book_id):
