@@ -89,9 +89,14 @@ def init_db():
                 page_count INTEGER NOT NULL DEFAULT 1,
                 filesize INTEGER NOT NULL DEFAULT 0,
                 current_page INTEGER NOT NULL DEFAULT 1,
+                is_image INTEGER NOT NULL DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        try:
+            conn.execute('ALTER TABLE books ADD COLUMN is_image INTEGER NOT NULL DEFAULT 0')
+        except Exception:
+            pass
         conn.execute('''
             CREATE TABLE IF NOT EXISTS quizzes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,31 +131,31 @@ def count_pages(pdf_path):
         app.logger.error(f'Error counting pages: {e}')
         return 1
 
-def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=160, quality=88):
+def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=160, quality=88, grayscale=True):
     output_jpg = Path(output_jpg)
     if output_jpg.exists():
         return True
 
-    # Method 1: Native pdftoppm in ultra-clear grayscale at 160 DPI
+    # Method 1: Native pdftoppm
     if shutil.which('pdftoppm'):
         prefix = output_jpg.with_suffix('')
         cmd = [
             'pdftoppm',
-            '-gray',
             '-jpeg',
             '-jpegopt', f'quality={quality}',
             '-r', str(dpi),
             '-f', str(page_num),
             '-l', str(page_num),
-            '-singlefile',
-            str(pdf_path),
-            str(prefix)
+            '-singlefile'
         ]
+        if grayscale:
+            cmd.insert(1, '-gray')
+        cmd.extend([str(pdf_path), str(prefix)])
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if res.returncode == 0 and output_jpg.exists():
             return True
 
-    # Method 2: Fallback to portable pypdfium2 in crisp grayscale
+    # Method 2: Fallback to portable pypdfium2
     try:
         doc = pdfium.PdfDocument(str(pdf_path))
         if page_num < 1 or page_num > len(doc):
@@ -158,7 +163,12 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=160, quality=88):
             return False
         page = doc[page_num - 1]
         scale = dpi / 72.0
-        pil_img = page.render(scale=scale).to_pil().convert('L')
+        pil_img = page.render(scale=scale).to_pil()
+        if grayscale:
+            pil_img = pil_img.convert('L')
+        else:
+            if pil_img.mode != 'RGB':
+                pil_img = pil_img.convert('RGB')
         pil_img.save(str(output_jpg), 'JPEG', quality=quality)
         doc.close()
         return True
@@ -174,17 +184,18 @@ def sync_uploaded_files_to_db():
         for pdf_file in sorted(UPLOADS_DIR.glob('*.pdf')):
             if pdf_file.name not in existing_files:
                 clean_title = pdf_file.stem
+                is_img = 1 if pdf_file.name.startswith('img_') else 0
                 parts = clean_title.split('_', 1)
-                if len(parts) == 2 and parts[0].isdigit():
+                if len(parts) == 2 and (parts[0].isdigit() or parts[0] == 'img'):
                     clean_title = parts[1]
                 clean_title = clean_title.replace('_', ' ').replace('-', ' ').strip()
                 page_count = count_pages(pdf_file)
                 filesize = pdf_file.stat().st_size
                 with conn:
                     conn.execute('''
-                        INSERT INTO books (title, filename, page_count, filesize, current_page)
-                        VALUES (?, ?, ?, ?, 1)
-                    ''', (clean_title, pdf_file.name, page_count, filesize))
+                        INSERT INTO books (title, filename, page_count, filesize, current_page, is_image)
+                        VALUES (?, ?, ?, ?, 1, ?)
+                    ''', (clean_title, pdf_file.name, page_count, filesize, is_img))
                 added = True
         conn.close()
         if added:
@@ -1056,7 +1067,7 @@ def upload():
         is_image = ext in IMAGE_EXTS or (file.mimetype and file.mimetype.startswith('image/'))
 
         if is_image:
-            safe_filename = f"{timestamp}_{Path(orig_name).stem.replace(' ', '_')}.pdf"
+            safe_filename = f"img_{timestamp}_{Path(orig_name).stem.replace(' ', '_')}.pdf"
             save_path = UPLOADS_DIR / safe_filename
             try:
                 img = Image.open(file.stream)
@@ -1069,27 +1080,29 @@ def upload():
                 continue
             filesize = save_path.stat().st_size
             page_count = 1
+            is_img_flag = 1
         else:
             safe_filename = f"{timestamp}_{orig_name.replace(' ', '_')}"
             save_path = UPLOADS_DIR / safe_filename
             file.save(str(save_path))
             filesize = save_path.stat().st_size
             page_count = count_pages(save_path)
+            is_img_flag = 0
 
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO books (title, filename, page_count, filesize, current_page)
-            VALUES (?, ?, ?, ?, 1)
-        ''', (clean_title, safe_filename, page_count, filesize))
+            INSERT INTO books (title, filename, page_count, filesize, current_page, is_image)
+            VALUES (?, ?, ?, ?, 1, ?)
+        ''', (clean_title, safe_filename, page_count, filesize, is_img_flag))
         book_id = cursor.lastrowid
         conn.commit()
         titles_uploaded.append(clean_title)
 
-        # Pre-render page 1 in grayscale in background so UI responds instantly
-        def prerender(p=save_path, b_id=book_id, p_count=page_count):
-            render_page_to_jpeg(p, 1, CACHE_DIR / f"{b_id}_p1.jpg")
+        # Pre-render page 1: color for images, grayscale for PDFs
+        def prerender(p=save_path, b_id=book_id, p_count=page_count, is_c=is_image):
+            render_page_to_jpeg(p, 1, CACHE_DIR / f"{b_id}_p1.jpg", grayscale=(not is_c))
             if p_count > 1:
-                render_page_to_jpeg(p, 2, CACHE_DIR / f"{b_id}_p2.jpg")
+                render_page_to_jpeg(p, 2, CACHE_DIR / f"{b_id}_p2.jpg", grayscale=(not is_c))
         threading.Thread(target=prerender, daemon=True).start()
 
     conn.close()
@@ -1112,7 +1125,16 @@ def get_page(book_id, page_num):
         pdf_path = UPLOADS_DIR / book['filename']
         if not pdf_path.exists():
             abort(404)
-        success = render_page_to_jpeg(pdf_path, page_num, cache_file)
+        is_img = False
+        try:
+            if 'is_image' in book.keys() and book['is_image']:
+                is_img = True
+        except Exception:
+            pass
+        if not is_img and book['filename'].startswith('img_'):
+            is_img = True
+        grayscale = not is_img
+        success = render_page_to_jpeg(pdf_path, page_num, cache_file, grayscale=grayscale)
         if not success:
             abort(500)
 
