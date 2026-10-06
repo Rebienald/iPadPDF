@@ -546,18 +546,13 @@ SPA_HTML = '''<!DOCTYPE html>
 
     <!-- ==================== 1. MONOCHROME LIBRARY VIEW ==================== -->
     <div id="libraryView">
-        <div class="box" style="overflow: hidden;">
-            <button onclick="forceRefresh()" class="btn" style="float: right; margin-left: 10px; padding: 8px 18px; font-size: 14px; font-weight: bold; cursor: pointer;">&#8635; Refresh</button>
-            <div class="box-title" style="margin-top: 2px;">iPad PDF Library</div>
-            <div>Address: <strong>http://{{ local_ip }}:{{ port }}</strong></div>
-        </div>
-
         <div class="box">
             <div class="box-title">Offline Cache</div>
             <div style="margin-bottom: 10px; font-size: 13px; color: #444444;">
                 Download all documents into iPad storage for offline reading:
             </div>
             <button onclick="startOfflineCacheAll()" id="libCacheBtn" class="btn" style="padding: 10px 18px;">Save All Books for Offline</button>
+            <button onclick="forceRefresh()" class="btn btn-light" style="padding: 10px 18px; margin-left: 8px; font-weight: bold; cursor: pointer;">&#8635; Refresh</button>
             <div id="libCacheStatus" style="margin-top: 8px; font-size: 13px; font-weight: bold;"></div>
         </div>
 
