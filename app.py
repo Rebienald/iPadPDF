@@ -1697,12 +1697,13 @@ def chat_book(book_id):
     context_text = doc_text[:120000]
 
     prompt = (
-        f"You are a helpful study assistant for the document titled '{book['title']}'.\n"
-        f"Below is the full text of the document:\n"
+        f"You are a helpful, knowledgeable study assistant for the document titled '{book['title']}'.\n"
+        f"Below is the text of the document for reference:\n"
         f"---\n{context_text}\n---\n\n"
         f"User question: {question}\n\n"
         f"Instructions:\n"
-        f"- Answer the question accurately based directly on the provided document.\n"
+        f"- Prioritize using the document text if the question relates to it.\n"
+        f"- If the question is outside or not covered in the document, still answer it accurately and helpfully using your general knowledge.\n"
         f"- Keep your answer concise, direct, and easy to read on a mobile screen.\n"
         f"- Do NOT use markdown symbols like asterisks, hashtags, or markdown bolding. Use clean plain text."
     )
