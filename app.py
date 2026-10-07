@@ -176,35 +176,6 @@ def render_page_to_jpeg(pdf_path, page_num, output_jpg, dpi=160, quality=88, gra
         app.logger.error(f'Failed rendering page {page_num}: {e}')
         return False
 
-def sync_uploaded_files_to_db():
-    try:
-        conn = get_db()
-        existing_files = {row['filename'] for row in conn.execute('SELECT filename FROM books').fetchall()}
-        added = False
-        for pdf_file in sorted(UPLOADS_DIR.glob('*.pdf')):
-            if pdf_file.name not in existing_files:
-                clean_title = pdf_file.stem
-                is_img = 1 if pdf_file.name.startswith('img_') else 0
-                parts = clean_title.split('_', 1)
-                if len(parts) == 2 and (parts[0].isdigit() or parts[0] == 'img'):
-                    clean_title = parts[1]
-                clean_title = clean_title.replace('_', ' ').replace('-', ' ').strip()
-                page_count = count_pages(pdf_file)
-                filesize = pdf_file.stat().st_size
-                with conn:
-                    conn.execute('''
-                        INSERT INTO books (title, filename, page_count, filesize, current_page, is_image)
-                        VALUES (?, ?, ?, ?, 1, ?)
-                    ''', (clean_title, pdf_file.name, page_count, filesize, is_img))
-                added = True
-        conn.close()
-        if added:
-            app.logger.info("Auto-registered untracked PDFs found in uploads directory")
-    except Exception as e:
-        app.logger.error(f"Error syncing uploaded files to db: {e}")
-
-sync_uploaded_files_to_db()
-
 # ==================== SUPABASE CLOUD SYNC & STORAGE ====================
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '').strip().rstrip('/')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '').strip()
@@ -226,6 +197,7 @@ def supabase_request(endpoint, method='GET', data=None, headers=None):
             req_headers['Content-Type'] = 'application/json'
         elif isinstance(data, (bytes, bytearray)):
             req_data = data
+    import urllib.request
     req = urllib.request.Request(url, data=req_data, headers=req_headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -266,16 +238,18 @@ def supabase_sync_book_insert(book_dict):
 def supabase_sync_book_delete(filename):
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
+    import urllib.parse
     supabase_request(f'/rest/v1/books?filename=eq.{urllib.parse.quote(filename)}', method='DELETE')
     supabase_delete_file(filename)
 
 def supabase_sync_bookmark(filename, page_num):
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
+    import urllib.parse
     supabase_request(f'/rest/v1/books?filename=eq.{urllib.parse.quote(filename)}', method='PATCH', data={'current_page': page_num})
 
 def supabase_pull_library():
-    """Initial pull from Supabase to local SQLite so both match perfectly."""
+    """Sync library strictly from Supabase so only Supabase files are shown."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
     try:
@@ -284,8 +258,15 @@ def supabase_pull_library():
             return
         cloud_books = json.loads(raw)
         conn = get_db()
-        local_files = {row['filename'] for row in conn.execute('SELECT filename FROM books').fetchall()}
+        cloud_filenames = {b['filename'] for b in cloud_books}
+
         with conn:
+            # Remove any local books that do not exist in Supabase
+            conn.execute('DELETE FROM books WHERE filename NOT IN ({})'.format(
+                ','.join('?' for _ in cloud_filenames) if cloud_filenames else '""'
+            ), list(cloud_filenames) if cloud_filenames else [])
+
+            local_files = {row['filename'] for row in conn.execute('SELECT filename FROM books').fetchall()}
             for b in cloud_books:
                 if b['filename'] not in local_files:
                     conn.execute('''
@@ -296,7 +277,7 @@ def supabase_pull_library():
                     # Update bookmark from cloud if present
                     conn.execute('UPDATE books SET current_page = ? WHERE filename = ?', (b.get('current_page', 1), b['filename']))
         conn.close()
-        app.logger.info("Pulled library metadata from Supabase")
+        app.logger.info("Synced library strictly with Supabase")
     except Exception as e:
         app.logger.error(f"Error pulling library from Supabase: {e}")
 
@@ -1111,6 +1092,7 @@ SPA_HTML = '''<!DOCTYPE html>
 
 @app.route('/')
 def index():
+    supabase_pull_library()
     conn = get_db()
     books_rows = conn.execute('SELECT * FROM books ORDER BY created_at DESC').fetchall()
     conn.close()
